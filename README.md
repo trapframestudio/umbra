@@ -13,8 +13,8 @@ button away. Players can still add, turn off and reorder mods in MO2 as usual.
 - **G.A.M.M.A.** is pinned to the version Umbra was tested with, and installed
   by FaithBeam's stalker-gamma-cli.
 - **xrRazom** (co-op) follows its latest release.
-- **The Umbra layer** is everything else: xrRazom, the extra mods, Zone Gore
-  Overhaul and its bake. Umbra hosts these itself, crediting every author,
+- **The Umbra layer** is everything else: xrRazom, the extra mods, Umbra Gore &
+  Effects and its prebaked body models. Umbra hosts these itself, crediting every author,
   except xrRazom: its author asks that it be downloaded from ModDB (so its
   downloads are counted), so players' Setup downloads it there.
 
@@ -119,11 +119,21 @@ packs what changed. Linux programs and scripts (files starting `\x7fELF` or
 `#!`, such as ZGO Setup's `zgo-setup-linux`) are packed `rwxr-xr-x` whatever
 their mode in the instance, since an MO2 install drops mode bits, and Setup
 installs them runnable. Umbra Gore & Effects is packed by its own release rules,
-with its bake, and its version comes from `VERSION` in `zgo_main.script` (MO2
-writes a date stamp such as `d2026.11.14` into its `meta.ini`). The bake must be
-in the ZGO folder when you build: run ZGO Setup (or `zgo-setup.sh --bake --yes`)
-for the instance's profile first, and check that `--dry-run` shows the zgo layer
-at about 7.8 GB, not about 0.5 GB.
+and its version comes from `VERSION` in `zgo_main.script` (MO2 writes a date
+stamp such as `d2026.11.14` into its `meta.ini`).
+
+**The prebaked bake.** Umbra Gore & Effects cuts every character model of the
+player's mod list into parts (its bake). The build splits what Umbra Effects
+Setup made in the mod's folder (the files its reports list) out of the zgo
+layer and packs it into `umbra-effects/<fingerprint>/`, named by the bake's fingerprint
+(the same mod list gives the same fingerprint on every machine). The layer
+names it, and players' Setup downloads it only when it fits their mod list
+(see the installer's step 4). The bake must be in the mod's folder when you
+build: run Umbra Effects Setup (or `zgo-setup.sh --bake --yes`) for the
+instance's profile first. `--dry-run` shows the zgo layer at about 0.5 GB and
+the bake as its own line at about 7.3 GB; a build without a bake warns that
+every player will bake on their own machine. `--bake-only` builds just the
+bake, for publishing it with `dev/b2_upload.py --bakes`.
 
 A rebuild under the same pack version with a changed layer (a rebake, a fix)
 reaches installs too: Check for updates names the changed mods and offers
@@ -133,6 +143,7 @@ The output in `dist/`:
 
 ```
 objects/<sha256>.zip|.txt    layer volumes, the G.A.M.M.A. lists, the Umbra load order
+umbra-effects/<fingerprint>/ the prebaked bake: <sha256>.json (its manifest), <sha256>.zip
 packs/umbra-<version>.json   the pack manifest
 channels/<channel>.json      points at the manifest
 CREDITS.md                   everyone whose work is in the pack
@@ -150,6 +161,7 @@ Cloudflare), and every file except the channel files is named by its sha256:
 channels/<channel>.json   {"format": 1, "version": "...", "pack": "packs/umbra-<v>.json", "sha256": "..."}
 packs/umbra-<v>.json      the pack manifest, checked against the channel's sha256
 objects/<sha256>.<ext>    every file the manifest names, checked against its sha256
+umbra-effects/<fingerprint>/   Umbra Gore & Effects' prebaked bake: its manifest and volumes
 ```
 
 A channel file is the only thing that ever changes in place. Publishing a new
@@ -176,6 +188,7 @@ umbra-setup --add-to MO2_DIR        add Umbra to a G.A.M.M.A. install you alread
   --with OPTION / --without OPTION  pick optional parts
   --with OPTION=CHOICE              pick one, e.g. --with ccon-season=winter
   --repair                          also reinstall any Umbra mod whose folder lost files
+  --no-bake                         leave Umbra Gore & Effects' body models alone
 umbra-setup --plan ...              only say what would happen
 umbra-setup --selftest              check that this program works here
 umbra-setup --launcher [--work DIR] [-- STEAM_COMMAND...]   the launcher
@@ -217,11 +230,25 @@ Either way, it then:
 3. Makes an MO2 profile called "Umbra": a copy of G.A.M.M.A.'s profile with
    Umbra's load order. G.A.M.M.A.'s own profile is never changed. MO2 opens the
    Umbra profile from then on.
-4. Gets what the game needs from Microsoft (see below).
-5. Installs the launcher in the install's `.umbra` folder (see below), with
+4. Puts Umbra Gore & Effects' body models in place, asking the Umbra Effects
+   Setup in the mod's folder (`installer/umbra_installer/prebake.py`):
+   - Already baked, and the bake still fits the mod list (`--check`): nothing
+     to do.
+   - Otherwise it downloads the prebaked bake's report (a few KB), and Umbra
+     Effects Setup compares it with the player's mod list (`--match`). If it
+     fits (the same models, compared by content), Setup downloads the rest and
+     puts it in the mod's folder.
+   - If it doesn't fit, or the download fails, Umbra Effects Setup bakes for
+     the player's own mod list (`--bake`, a few minutes on every CPU core).
+   - Then it cuts the breakable props again if they don't fit (`--props`).
+
+   A bake that fails is a warning, not a failed install: the mod works
+   without it and says so in the game. An update of the mod keeps its bake.
+5. Gets what the game needs from Microsoft (see below).
+6. Installs the launcher in the install's `.umbra` folder (see below), with
    the pack manifest (`pack.json`) it reads the options from.
-6. Adds Umbra to Steam (see below).
-7. Writes `UMBRA-CREDITS.txt` next to `ModOrganizer.exe`.
+7. Adds Umbra to Steam (see below).
+8. Writes `UMBRA-CREDITS.txt` next to `ModOrganizer.exe`.
 
 Everything it logs also goes to `.umbra/logs/setup-<date>-<time>.log` (the
 newest 20 are kept), including the error if it fails.
@@ -249,9 +276,12 @@ machine's paths with tokens, and the installer puts in the player's own:
 | `@@UMBRA_MO2_WIN@@` | the same as the game sees it (`C:\...`, or `Z:\home\...` under Wine/Proton) |
 | `@@UMBRA_ANOMALY@@`, `@@UMBRA_ANOMALY_WIN@@` | the Anomaly folder, the same two ways |
 | `@@UMBRA_ZGO_CACHE@@` | Umbra Gore & Effects' baker work folder |
+| `@@UMBRA_PROFILE@@` | the Umbra profile's name (in the prebaked bake) |
+| `@@UMBRA_ZGO_FOLDER@@` | Umbra Gore & Effects' folder name (in the prebaked bake) |
 
-Each token also has an `_ESC` form with doubled backslashes, for JSON and Lua
-strings. The manifest lists which files of each layer carry tokens.
+Each path token also has an `_ESC` form with doubled backslashes, for JSON and
+Lua strings. The manifest lists which files of each layer and of the bake carry
+tokens.
 
 **Steam shortcut.** Umbra appears in the Steam library as a non-Steam game
 that opens the Umbra launcher, with Umbra's icon and artwork. On Linux MO2

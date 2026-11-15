@@ -162,8 +162,9 @@ credit = "umbra"
 id = "zgo"
 folder = "Umbra Gore & Effects"
 was = ["Zone Gore Overhaul"]                    # its name up to 1.7.1
-from = "../../gamma/mods/Umbra Gore & Effects"  # the deployed mod: packed like a release, plus the bake
-zgo = true                                      # pack with ZGO's own release rules (dev/package.py) + bake
+from = "../../gamma/mods/Umbra Gore & Effects"  # the deployed mod, with its bake
+zgo = true                                      # ZGO's own release rules (dev/package.py); the bake goes
+                                                # to umbra-effects/<fingerprint>/ (README: "The prebaked bake")
 credit = "zgo"
 
 [[layer]]

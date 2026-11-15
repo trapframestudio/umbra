@@ -63,6 +63,7 @@ sys.path.insert(0, os.path.join(ROOT, "installer"))
 from umbra_installer import fetch as inst_fetch  # noqa: E402
 from umbra_installer import layers as inst_layers  # noqa: E402
 from umbra_installer import packdef  # noqa: E402
+from umbra_installer import prebake as inst_prebake  # noqa: E402
 
 TEXT_EXT = (".json", ".script", ".ltx", ".txt", ".ini", ".xml", ".cfg", ".lua", ".md")
 TEXT_MAX = 64 << 20
@@ -746,7 +747,7 @@ class Builder:
                 meta = parse_meta(read_source(m[0][1]).decode("utf-8", errors="replace"))
                 files = [f for f in files if f[0].lower() != "meta.ini"]
         else:
-            folder = resolve(base, L["from"]) if "from" in L else os.path.join(self.mo2, "mods", L["folder"])
+            folder = self.layer_folder(L)
             if not os.path.isdir(folder):
                 raise DefError("layer %s: %s is not there" % (L["id"], folder))
             meta = read_meta(folder)
@@ -775,6 +776,10 @@ class Builder:
         if target == "mods" and not L.get("take"):     # (an author's archive gets it from the manifest)
             files.append(("meta.ini", ("bytes", b""), 0, EPOCH_1980, clean_meta(meta)))
         return files, meta
+
+    def layer_folder(self, L):
+        """A folder layer's source: "from", else the tested MO2's mods/<folder>."""
+        return resolve(self.d["_base"], L["from"]) if "from" in L else os.path.join(self.mo2, "mods", L["folder"])
 
     def single_files(self, L):
         """A layer's files = {"path in the mod" = "file"}: [(rel, src, size, mtime, None)]."""
@@ -875,25 +880,132 @@ class Builder:
             out.append((rel, src, size, mtime, override))
         return out, relocated
 
-    def zgo_profile(self, files, profile_name):
-        """ZGO's bake records the profile it was made for: make it the Umbra profile."""
-        src_prof = self.profile
-        out = []
+    # -- Umbra Gore & Effects' bake (packdef "Prebaked bakes")
+    def split_bake(self, L, files):
+        """(the mod's own files, its bake): what Umbra Effects Setup made in the folder is
+        listed in its reports (inst_prebake.generated)."""
+        made = inst_prebake.generated(self.layer_folder(L))
+        return [f for f in files if f[0] not in made], [f for f in files if f[0] in made]
+
+    def bake_names(self, L, files):
+        """The profile and folder names the bake records become tokens: Setup puts in the
+        player's (the bake is the same for every profile name and folder name)."""
+        folder = os.path.basename(os.path.normpath(self.layer_folder(L)))
+        # (a bake made before the mod's folder was renamed records the old name: "was")
+        names = {"profile": ({self.profile}, "@@UMBRA_PROFILE@@"),
+                 "zgo_mod": ({folder, L["folder"]} | set(L.get("was", [])), "@@UMBRA_ZGO_FOLDER@@")}
+
+        def walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k in names and v in names[k][0]:
+                        node[k] = names[k][1]
+                    else:
+                        walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        out, named = [], []
         for rel, src, size, mtime, override in files:
-            if rel in ("zgo_bake_report.json", "gamedata/scripts/zgo_bake_inputs.script"):
+            if rel in inst_prebake.REPORTS or rel == "gamedata/scripts/zgo_bake_inputs.script":
                 data = override if override is not None else read_source(src)
                 if rel.endswith(".json"):
                     rep = json.loads(data.decode("utf-8"))
-                    if rep.get("profile") == src_prof:
-                        rep["profile"] = profile_name
-                    if (rep.get("inputs") or {}).get("profile") == src_prof:
-                        rep["inputs"]["profile"] = profile_name
+                    walk(rep)
                     data = json.dumps(rep, indent=1, sort_keys=True).encode("utf-8")
                 else:
-                    data = re.sub(rb'^profile = "%s"' % re.escape(src_prof.encode()),
-                                  b'profile = "' + profile_name.encode() + b'"', data, flags=re.M)
+                    for k, (was, tok) in names.items():
+                        alts = b"|".join(re.escape(w.encode()) for w in sorted(was))
+                        data = re.sub(rb'^%s = "(?:%s)"' % (k.encode(), alts),
+                                      ('%s = "%s"' % (k, tok)).encode(), data, flags=re.M)
                 override, size = data, len(data)
+                named.append(rel)
             out.append((rel, src, size, mtime, override))
+        return out, named
+
+    def prebake(self, L, files, pname):
+        """Pack the bake into umbra-effects/<fingerprint>/ (its report volume first) and write its
+        manifest there; returns the layer's bake object."""
+        files, relocated = self.scan_and_relocate(L, files)
+        files, named = self.bake_names(L, files)
+        body = [f for f in files if f[0] == inst_prebake.BODY_REPORT]
+        if not body:
+            raise DefError("layer %s: the bake has files but no %s" % (L["id"], inst_prebake.BODY_REPORT))
+        rel, src, size, mtime, override = body[0]
+        rep = json.loads((override if override is not None else read_source(src)).decode("utf-8"))
+        inputs = rep.get("inputs") or {}
+        fp = inputs.get("fingerprint") or ""
+        if not re.match(r"^[0-9a-f]{32}$", fp):
+            raise DefError("layer %s: its bake has no fingerprint (made by an Umbra Gore & Effects before 1.7); "
+                           "bake again with Umbra Effects Setup" % L["id"])
+        reports = [f for f in files if f[0] in inst_prebake.REPORTS]
+        vols = [reports] + chunk([f for f in files if f[0] not in inst_prebake.REPORTS], self.volume_bytes)
+        prefix = "%s/%s/" % (packdef.BAKE_DIR, fp)
+        key_layer = {"id": "bake-" + fp, "target": "bake"}
+        objs, jobs = [None] * len(vols), []
+        for i, v in enumerate(vols):
+            key = self.cache_key(key_layer, v)
+            hit = self.cache.get(key)
+            if hit and hit["path"].startswith(prefix) and os.path.exists(os.path.join(self.out, hit["path"])):
+                objs[i] = dict(hit)
+            else:
+                jobs.append((i, key, v))
+        nbytes = sum(f[2] for f in files)
+        say("  %-22s %6d files %10s in %d volumes (%s; %d to pack)" % (
+            "zgo bake", len(files), packdef.human(nbytes), len(vols), prefix, len(jobs)))
+        if self.dry:
+            return {"path": prefix + "0" * 64 + ".json", "sha256": "0" * 64, "size": 0, "download": 0,
+                    "bytes": nbytes}
+        os.makedirs(os.path.join(self.out, prefix), exist_ok=True)
+        tmp_dir = os.path.join(self.out, ".tmp")
+        os.makedirs(tmp_dir, exist_ok=True)
+        with cf.ProcessPoolExecutor(max_workers=self.jobs) as ex:
+            futs = {ex.submit(build_volume, (v, tmp_dir)): (i, key, v) for i, key, v in jobs}
+            for n, fut in enumerate(cf.as_completed(futs)):
+                i, key, v = futs[fut]
+                sha, size, tmp = fut.result()
+                orel = "%s%s.zip" % (prefix, sha)
+                dst = os.path.join(self.out, orel)
+                if os.path.exists(dst):
+                    os.unlink(tmp)
+                else:
+                    os.replace(tmp, dst)
+                objs[i] = {"path": orel, "sha256": sha, "size": size, "files": len(v), "bytes": sum(f[2] for f in v)}
+                self.cache[key] = objs[i]
+                self.save_cache()
+                say("  packed bake %d/%d: %s" % (n + 1, len(jobs), packdef.human(size)))
+        man = {"format": packdef.BAKE_FORMAT, "kind": "umbra-effects-bake", "fingerprint": fp,
+               "baker": inputs.get("baker", 0), "zgo": inputs.get("zgo", ""), "made": rep.get("time", ""),
+               "models": rep.get("baked", 0), "files": len(files), "bytes": nbytes,
+               "relocate": sorted(set(relocated) | set(named)), "report": objs[0], "volumes": objs[1:]}
+        packdef.check_bake(man)
+        # sorted keys: a volume from the build cache comes back with its keys in another order
+        blob = (json.dumps(man, indent=1, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        sha = packdef.sha256_bytes(blob)
+        mrel = "%s%s.json" % (prefix, sha)
+        self.write(mrel, blob)
+        say("  bake manifest %s (%d models, %s to download)" % (
+            mrel, man["models"], packdef.human(sum(o["size"] for o in objs))))
+        return {"path": mrel, "sha256": sha, "size": len(blob), "download": sum(o["size"] for o in objs),
+                "bytes": nbytes}
+
+    def bake_only(self):
+        """Build only Umbra Gore & Effects' prebaked bake (no pack, no channel)."""
+        out = []
+        for L in self.d["layer"]:
+            if not L.get("zgo"):
+                continue
+            files, _meta = self.layer_files(L)
+            files, _left = self.leave_out(L, files)
+            _, bake_files = self.split_bake(L, files)
+            if not bake_files:
+                raise DefError("layer %s: %s has no bake (run Umbra Effects Setup there first)" % (L["id"], self.layer_folder(L)))
+            out.append(self.prebake(L, bake_files, self.d["profile"]["name"]))
+        if not out:
+            raise DefError("the pack has no zgo layer")
+        self.save_cache()
+        for w in self.warnings:
+            say("WARNING " + w)
         return out
 
     def cache_key(self, L, vol):
@@ -928,6 +1040,15 @@ class Builder:
             done_files[L["id"]] = (files, meta, left_out)
         for L in d["layer"]:
             files, meta, left_out = done_files[L["id"]]
+            bake_obj = None
+            if L.get("zgo"):
+                # its bake goes up as its own download (packdef "Prebaked bakes"); the layer is the mod
+                files, bake_files = self.split_bake(L, files)
+                if bake_files:
+                    bake_obj = self.prebake(L, bake_files, pname)
+                else:
+                    self.warnings.append("layer %s: %s has no bake, so every player bakes on their own machine "
+                                         "(Umbra Effects Setup, a few minutes)" % (L["id"], L["folder"]))
             if L.get("take"):
                 if left_out:
                     raise DefError("layer %s: players get the author's archive as it is, and it has machine-specific "
@@ -947,8 +1068,6 @@ class Builder:
                     L["id"], len(files), packdef.human(vol["bytes"]), vol["origin"]["name"], vol["origin"]["site"]))
                 continue
             files, relocated = self.scan_and_relocate(L, files)
-            if L.get("zgo"):
-                files = self.zgo_profile(files, pname)
             nbytes = sum(f[2] for f in files)
             vols = chunk(files, self.volume_bytes)
             version = meta.get("version", "") if meta else ""
@@ -963,6 +1082,8 @@ class Builder:
             for k in ("option", "profile", "preserve", "was"):
                 if L.get(k):
                     entry[k] = L[k]
+            if bake_obj:
+                entry["bake"] = bake_obj
             layers.append(entry)
             say("  %-22s %6d files %10s in %d volume%s%s%s" % (
                 L["id"], len(files), packdef.human(nbytes), len(vols), "" if len(vols) == 1 else "s",
@@ -1145,12 +1266,17 @@ def main():
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--fetch-sources", action="store_true", help="download the pinned sources and stop")
+    ap.add_argument("--bake-only", action="store_true",
+                    help="build only Umbra Gore & Effects' prebaked bake into OUT/umbra-effects/ (no pack, no channel)")
     a = ap.parse_args()
     d = load_def(a.defn)
     if a.fetch_sources:
         fetch_sources(d)
         return 0
     b = Builder(d, os.path.abspath(a.out), a.volume_mb << 20, a.jobs, a.dry_run)
+    if a.bake_only:
+        b.bake_only()
+        return 0
     b.build()
     return 0
 

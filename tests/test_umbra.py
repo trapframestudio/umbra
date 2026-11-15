@@ -37,6 +37,73 @@ from umbra_installer import cab, fetch, gammacli, install, launcher, layers, mo2
 
 REAL_DOWNLOADS = copy.deepcopy(runtime.DOWNLOADS)       # the tests use small stand-ins (setUpModule)
 
+# A stand-in for Umbra Effects Setup (tools/zgo_setup/zgo-setup-linux in the ZGO folder): the
+# command line Umbra Setup uses, and its RESULT lines. FAKE_ZGO_* in the environment steer it.
+FAKE_ZGO = r'''#!/usr/bin/env python3
+import json, os, sys
+a = sys.argv[1:]
+def arg(k):
+    return a[a.index(k) + 1] if k in a else None
+log = open(arg("--log"), "a")
+def say(s):
+    log.write(s + "\n")
+    log.flush()
+if os.environ.get("FAKE_ZGO_CALLS"):
+    with open(os.environ["FAKE_ZGO_CALLS"], "a") as f:
+        f.write(" ".join(x for x in a if x.startswith("--") and x not in
+                         ("--mod", "--mo2", "--profile", "--game", "--log", "--yes")) + "\n")
+mod = arg("--mod")
+rep_p = os.path.join(mod, "zgo_bake_report.json")
+def body_state():
+    try:
+        rep = json.load(open(rep_p))
+    except (OSError, ValueError):
+        return "none"
+    if not all(os.path.isfile(os.path.join(mod, *f.split("/"))) for f in rep.get("files", [])):
+        return "broken"
+    return "stale" if os.environ.get("FAKE_ZGO_STALE") else "ok"
+if "--check" in a:
+    st = body_state()
+    say("Your bake is up to date." if st == "ok" else "Not baked yet.")
+    say("RESULT body=%s props=%s kid=ok" % (st, os.environ.get("FAKE_ZGO_PROPS", "none")))
+    sys.exit(0 if st == "ok" else 1)
+if "--match" in a:
+    rep = json.load(open(os.path.join(arg("--match"), "zgo_bake_report.json")))
+    assert rep["profile"] == arg("--profile"), rep["profile"]           # Setup put the names in
+    assert rep["inputs"]["zgo_mod"] == os.path.basename(mod), rep["inputs"]["zgo_mod"]
+    assert rep["inputs"]["mo2"] == arg("--mo2"), rep["inputs"]["mo2"]
+    fp = rep["inputs"]["fingerprint"]
+    if os.environ.get("FAKE_ZGO_MATCH") == "old":                       # before 1.8.0: no --match
+        say("Traceback (most recent call last):")
+        say("TypeError: check() got an unexpected keyword argument 'report'")
+        sys.exit(1)
+    if os.environ.get("FAKE_ZGO_MATCH", "yes") == "yes":
+        say("The prebaked bake fits your mod list.")
+        say("RESULT match=yes fingerprint=" + fp)
+        sys.exit(0)
+    say("The prebaked bake does not fit your mod list.")
+    say('  - Mod "Extra Models" adds 2 models the bake does not have (e.g. actors\\x).')
+    say("RESULT match=no fingerprint=" + fp)
+    sys.exit(1)
+if "--bake" in a:
+    if os.environ.get("FAKE_ZGO_BAKE_FAILS"):
+        say("Problem: not enough free space")
+        sys.exit(2)
+    for i in (1, 2):
+        say("  [models] Baking %d/2 actors\\x" % i)
+    os.makedirs(os.path.join(mod, "gamedata", "meshes"), exist_ok=True)
+    open(os.path.join(mod, "gamedata", "meshes", "m.ogf"), "wb").write(b"baked here")
+    json.dump({"profile": arg("--profile"), "files": ["gamedata/meshes/m.ogf"], "inputs": {"fingerprint": "f" * 32}},
+              open(rep_p, "w"))
+    say("Baked 2 models (0 skipped, 0 could not be baked)")
+    sys.exit(0)
+if "--props" in a or "--kid-particles-apply" in a:
+    say("done")
+    sys.exit(0)
+sys.exit(2)
+'''
+BAKE_FP = "ab" * 16
+
 FAKE_CLI = r'''
 import json, os, sys
 a = sys.argv[1:]
@@ -112,20 +179,23 @@ def make_source(base):
     write(os.path.join(mods, "Visual Mod", "meta.ini"),
           "[General]\r\ngameName=stalkeranomaly\r\nversion=2.0\r\ninstallationFile=Z:/home/someone/x.7z\r\n"
           "url=https://www.moddb.com/mods/x\r\n")
-    # a ZGO-like layer whose report records this machine's paths
+    # a ZGO-like layer with its bake, whose report records this machine's paths and names
     zgo = os.path.join(mods, "Gore")
     write(os.path.join(zgo, "zgo_bake_report.json"), json.dumps({
-        "profile": "G.A.M.M.A", "inputs": {"profile": "G.A.M.M.A", "mo2": src_mo2,
-                                           "mo2_game": "Z:" + src_mo2.replace("/", "\\")}}))
+        "profile": "G.A.M.M.A", "time": "2026-11-15 12:00:00", "baked": 1,
+        "files": ["gamedata/meshes/m.ogf", "gamedata/scripts/zgo_bake_inputs.script"],
+        "inputs": {"profile": "G.A.M.M.A", "mo2": src_mo2, "mo2_game": "Z:" + src_mo2.replace("/", "\\"),
+                   "zgo_mod": "Gore", "fingerprint": BAKE_FP, "baker": 3, "zgo": "1.8.0"}}))
     write(os.path.join(zgo, "gamedata", "scripts", "zgo_bake_inputs.script"),
-          'profile = "G.A.M.M.A"\nmo2 = "%s"\n' % ("Z:" + src_mo2.replace("/", "\\")).replace("\\", "\\\\"))
+          'profile = "G.A.M.M.A"\nmo2 = "%s"\nzgo_mod = "Gore"\n'
+          % ("Z:" + src_mo2.replace("/", "\\")).replace("\\", "\\\\"))
     write(os.path.join(zgo, "notes.txt"), "baked from %s/mods/Visual Mod\n" % src_mo2)
     write(os.path.join(zgo, "dev", "secret.txt"), "dev only")
     write(os.path.join(zgo, "gamedata", "meshes", "m.ogf"), os.urandom(2000))
     write(os.path.join(zgo, "meta.ini"), "[General]\r\nversion=d2026.11.14\r\n")     # MO2's date stamp
     write(os.path.join(zgo, "gamedata", "scripts", "zgo_main.script"), 'local x = 1\nVERSION = "1.7.1"\n')
     # Linux programs that lost their mode bits in an MO2 install (written rw-r--r--)
-    write(os.path.join(zgo, "tools", "zgo_setup", "zgo-setup-linux"), b"\x7fELF" + os.urandom(500))
+    write(os.path.join(zgo, "tools", "zgo_setup", "zgo-setup-linux"), FAKE_ZGO)
     write(os.path.join(zgo, "tools", "zgo_setup", "zgo-setup.sh"), "#!/bin/sh\nexec true\n")
     for fn in ("zgo-setup-linux", "zgo-setup.sh"):
         os.chmod(os.path.join(zgo, "tools", "zgo_setup", fn), 0o644)
@@ -850,9 +920,32 @@ class PackBuild(unittest.TestCase):
                 modes.update((i.filename, i.external_attr >> 16) for i in z.infolist())
         self.assertEqual(modes["tools/zgo_setup/zgo-setup-linux"], 0o755)   # programs packed runnable
         self.assertEqual(modes["tools/zgo_setup/zgo-setup.sh"], 0o755)
-        self.assertEqual(modes["gamedata/meshes/m.ogf"], 0o644)
-        self.assertEqual(sorted(gore["relocate"]),
-                         ["gamedata/scripts/zgo_bake_inputs.script", "notes.txt", "zgo_bake_report.json"])
+        self.assertEqual(gore["relocate"], ["notes.txt"])
+        # the bake is not in the layer: it is its own download, in its own folder
+        self.assertNotIn("gamedata/meshes/m.ogf", names)
+        self.assertNotIn("zgo_bake_report.json", names)
+        ref = gore["bake"]
+        self.assertTrue(ref["path"].startswith("umbra-effects/%s/" % BAKE_FP), ref)
+        with open(os.path.join(out, ref["path"]), "rb") as f:
+            blob = f.read()
+        self.assertEqual(packdef.sha256_bytes(blob), ref["sha256"])
+        b = packdef.check_bake(json.loads(blob), ref)
+        self.assertEqual((b["fingerprint"], b["models"], b["zgo"], b["files"]), (BAKE_FP, 1, "1.8.0", 3))
+        self.assertEqual(b["relocate"], ["gamedata/scripts/zgo_bake_inputs.script", "zgo_bake_report.json"])
+        with zipfile.ZipFile(os.path.join(out, b["report"]["path"])) as z:
+            self.assertEqual(z.namelist(), ["zgo_bake_report.json"])         # the report alone, fetched first
+            rep = json.loads(z.read("zgo_bake_report.json"))
+        self.assertEqual((rep["profile"], rep["inputs"]["profile"], rep["inputs"]["zgo_mod"], rep["inputs"]["mo2"]),
+                         ("@@UMBRA_PROFILE@@", "@@UMBRA_PROFILE@@", "@@UMBRA_ZGO_FOLDER@@", "@@UMBRA_MO2@@"))
+        baked = set()
+        for v in b["volumes"]:
+            with zipfile.ZipFile(os.path.join(out, v["path"])) as z:
+                baked |= set(z.namelist())
+                if "gamedata/scripts/zgo_bake_inputs.script" in z.namelist():
+                    script = z.read("gamedata/scripts/zgo_bake_inputs.script").decode()
+                    self.assertIn('profile = "@@UMBRA_PROFILE@@"', script)
+                    self.assertIn('zgo_mod = "@@UMBRA_ZGO_FOLDER@@"', script)
+        self.assertEqual(baked, {"gamedata/meshes/m.ogf", "gamedata/scripts/zgo_bake_inputs.script"})
         visual = pack["layers"][2]
         vn, meta = [], None
         for v in visual["volumes"]:
@@ -873,6 +966,55 @@ class PackBuild(unittest.TestCase):
         self.assertNotIn("+Gore 1.6 (old)", ml)
         with open(os.path.join(out, "CREDITS.md")) as f:
             self.assertIn("[Visual Mod](https://example.org/visual) by Someone", f.read())
+
+    def test_the_bake_alone(self):
+        out = os.path.join(self.d, "bakeonly")
+        b = pack_build.Builder(pack_build.load_def(self.toml), out, 4096, 2, False)
+        ref, = b.bake_only()
+        self.assertTrue(ref["path"].startswith("umbra-effects/%s/" % BAKE_FP))
+        self.assertEqual([x for x in os.listdir(out) if not x.startswith(".")], ["umbra-effects"])     # no pack, no channel
+        files = os.listdir(os.path.join(out, "umbra-effects", BAKE_FP))
+        self.assertEqual(len(files), 3)                         # the manifest, the report, one volume
+        # the pack built after it names the same bake and packs nothing again for it
+        pack = pack_build.Builder(pack_build.load_def(self.toml), out, 4096, 2, False).build()
+        self.assertEqual(pack["layers"][0]["bake"], ref)
+        self.assertEqual(len(os.listdir(os.path.join(out, "umbra-effects", BAKE_FP))), 3)
+
+    def test_a_bake_made_before_the_mod_was_renamed(self):
+        with open(self.toml, encoding="utf-8") as f:
+            toml = f.read()
+        write(self.toml, toml.replace('folder = "Gore"\n', 'folder = "Gore"\nwas = ["Zone Gore"]\n', 1))
+        gore = os.path.join(self.d, "src", "gamma", "mods", "Gore")
+        rp = os.path.join(gore, "zgo_bake_report.json")
+        with open(rp, encoding="utf-8") as f:
+            rep = json.load(f)
+        rep["inputs"]["zgo_mod"] = "Zone Gore"
+        write(rp, json.dumps(rep))
+        sp = os.path.join(gore, "gamedata", "scripts", "zgo_bake_inputs.script")
+        with open(sp, encoding="utf-8") as f:
+            script = f.read()
+        write(sp, script.replace('zgo_mod = "Gore"', 'zgo_mod = "Zone Gore"'))
+        out = os.path.join(self.d, "renamed")
+        ref, = pack_build.Builder(pack_build.load_def(self.toml), out, 4096, 2, False).bake_only()
+        with open(os.path.join(out, ref["path"]), encoding="utf-8") as f:
+            b = json.load(f)
+        with zipfile.ZipFile(os.path.join(out, b["report"]["path"])) as z:
+            self.assertEqual(json.loads(z.read("zgo_bake_report.json"))["inputs"]["zgo_mod"], "@@UMBRA_ZGO_FOLDER@@")
+        for v in b["volumes"]:
+            with zipfile.ZipFile(os.path.join(out, v["path"])) as z:
+                if "gamedata/scripts/zgo_bake_inputs.script" in z.namelist():
+                    self.assertIn('zgo_mod = "@@UMBRA_ZGO_FOLDER@@"',
+                                  z.read("gamedata/scripts/zgo_bake_inputs.script").decode())
+
+    def test_a_zgo_folder_without_its_bake(self):
+        os.remove(os.path.join(self.d, "src", "gamma", "mods", "Gore", "zgo_bake_report.json"))
+        b = pack_build.Builder(pack_build.load_def(self.toml), os.path.join(self.d, "nobake"), 4096, 2, False)
+        pack = b.build()
+        self.assertNotIn("bake", pack["layers"][0])
+        self.assertTrue(any("every player bakes on their own machine" in w for w in b.warnings), b.warnings)
+        with self.assertRaisesRegex(pack_build.DefError, "has no bake"):
+            pack_build.Builder(pack_build.load_def(self.toml), os.path.join(self.d, "nobake2"), 4096, 2,
+                               False).bake_only()
 
     def test_deterministic_and_incremental(self):
         a = build(self.toml, os.path.join(self.d, "a"), volume=3000)
@@ -924,11 +1066,13 @@ class Install(unittest.TestCase):
         with open(os.path.join(mods, "Gore", "zgo_bake_report.json")) as f:
             rep = json.load(f)
         self.assertEqual(rep["profile"], "Umbra")
+        self.assertEqual(rep["inputs"]["zgo_mod"], "Gore")
         self.assertEqual(rep["inputs"]["mo2"], t_mo2)
         self.assertEqual(rep["inputs"]["mo2_game"], "Z:" + t_mo2.replace("/", "\\"))
         with open(os.path.join(mods, "Gore", "gamedata", "scripts", "zgo_bake_inputs.script")) as f:
             script = f.read()
         self.assertIn('profile = "Umbra"', script)
+        self.assertIn('zgo_mod = "Gore"', script)
         self.assertIn('mo2 = "%s"' % ("Z:" + t_mo2.replace("/", "\\")).replace("\\", "\\\\"), script)
         with open(os.path.join(mods, "Gore", "notes.txt")) as f:
             self.assertEqual(f.read(), "baked from %s/mods/Visual Mod\n" % t_mo2)
@@ -1342,6 +1486,177 @@ class Install(unittest.TestCase):
         self.assertTrue(any("not empty" in x for x in p.problems))
         p = install.Installer(install.Options(mode="existing", mo2_dir=busy, source=self.dist, steam=False)).plan()
         self.assertTrue(any("not a Mod Organizer 2 folder" in x for x in p.problems))
+
+
+class Prebake(unittest.TestCase):
+    """Umbra Gore & Effects' body models: the prebaked bake when Umbra Effects Setup says it
+    fits the player's mod list, else a bake on the player's machine."""
+    def setUp(self):
+        for target in ("umbra_installer.mo2.running", "umbra_installer.steam.running"):
+            p = mock.patch(target, return_value=False)
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(install, "GAMMA_BYTES", 0)
+        p.start()
+        self.addCleanup(p.stop)
+        self.calls = os.path.join(self.d, "calls-%s.txt" % self._testMethodName)
+        p = mock.patch.dict(os.environ, {"FAKE_ZGO_CALLS": self.calls})
+        p.start()
+        self.addCleanup(p.stop)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.d = tempfile.mkdtemp(prefix="umbra_test_")
+        cls.toml = make_source(cls.d)
+        cls.dist = os.path.join(cls.d, "dist")
+        cls.pack = build(cls.toml, cls.dist)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.d, ignore_errors=True)
+
+    def install(self, name, source=None, **kw):
+        t_mo2, _ = make_target(os.path.join(self.d, name))
+        st, logs = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=source or self.dist,
+                                               steam=False, **kw))
+        return t_mo2, st, logs
+
+    def asked(self):
+        """What Umbra Setup asked Umbra Effects Setup since the last asked()."""
+        if not os.path.exists(self.calls):
+            return []
+        with open(self.calls) as f:
+            out = [x.strip() for x in f]
+        os.remove(self.calls)
+        return out
+
+    def mesh(self, t_mo2):
+        return read_bytes(os.path.join(t_mo2, "mods", "Gore", "gamedata", "meshes", "m.ogf"))
+
+    def test_it_fits_so_it_is_downloaded(self):
+        t_new, _ = make_target(os.path.join(self.d, "fits-plan"))
+        plan = install.Installer(install.Options(mode="existing", mo2_dir=t_new, source=self.dist, steam=False)).plan()
+        self.assertTrue(any("downloads the prebaked ones" in w for w in plan.warnings), plan.warnings)
+        nobake = install.Installer(install.Options(mode="existing", mo2_dir=t_new, source=self.dist, steam=False,
+                                                   bake=False)).plan()
+        ref = self.pack["layers"][0]["bake"]
+        self.assertEqual(plan.need_bytes - nobake.need_bytes, ref["download"] + ref["bytes"])
+        t_mo2, st, logs = self.install("fits")
+        self.assertEqual(self.asked(), ["--check", "--match", "--check"])
+        self.assertEqual(st["bake"], {"how": "prebaked", "fingerprint": BAKE_FP})
+        ref = self.pack["layers"][0]["bake"]
+        self.assertGreater(ref["download"], 0)
+        self.assertGreater(ref["bytes"], 0)
+        self.assertNotEqual(self.mesh(t_mo2), b"baked here")
+        self.assertTrue(any("fit your mod list: downloading" in m for _, m in logs), logs)
+        cache = os.path.join(t_mo2, ".umbra", "cache", "umbra-effects")      # only the report stays (a few KB)
+        self.assertEqual(len([f for f in os.listdir(os.path.join(cache, BAKE_FP)) if f.endswith(".zip")]), 1)
+        # installed again: it is in place, nothing to fetch or bake
+        again = install.Installer(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
+        plan = again.plan()
+        self.assertFalse(any("body models" in w for w in plan.warnings), plan.warnings)   # it has them
+        st2, _ = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
+        self.assertEqual(self.asked(), ["--check"])
+        self.assertEqual(st2["bake"]["how"], "up to date")
+
+    def test_another_mod_list_is_baked_here(self):
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no"}):
+            t_mo2, st, logs = self.install("other-list")
+        self.assertEqual(self.asked(), ["--check", "--match", "--bake"])
+        self.assertEqual(st["bake"]["how"], "baked here")
+        self.assertEqual(self.mesh(t_mo2), b"baked here")
+        said = " ".join(m for _, m in logs)
+        self.assertIn("Extra Models", said)                     # why, in Umbra Effects Setup's words
+        self.assertNotIn("downloading them", said)
+        self.assertIn("Baked 2 models", said)
+
+    def test_an_umbra_effects_setup_that_cannot_compare(self):
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "old"}):
+            t_mo2, st, logs = self.install("old-zgo")
+        self.assertEqual(self.asked(), ["--check", "--match", "--bake"])
+        self.assertEqual(st["bake"]["how"], "baked here")
+        said = " ".join(m for _, m in logs)
+        self.assertIn("could not compare", said)
+        self.assertIn("unexpected keyword argument", said)
+        self.assertNotIn("another mod list", said)
+
+    def test_a_bake_that_fails_is_a_warning_not_a_failed_install(self):
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no", "FAKE_ZGO_BAKE_FAILS": "1"}):
+            t_mo2, st, logs = self.install("bake-fails")
+        self.assertEqual(st["bake"], {"how": "failed"})
+        self.assertTrue(any(lv == "warn" and "not enough free space" in m for lv, m in logs), logs)
+        self.assertTrue(os.path.isdir(os.path.join(t_mo2, "profiles", "Umbra")))   # the rest went on
+
+    def test_stale_props_are_cut_again(self):
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_PROPS": "stale"}):
+            self.install("props")
+        self.assertEqual(self.asked(), ["--check", "--match", "--check", "--props"])
+
+    def test_without_the_bake(self):
+        t_mo2, _ = make_target(os.path.join(self.d, "nobake"))
+        opts = install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False, bake=False)
+        self.assertNotIn("bake", [s[0] for s in install.Installer(opts).plan().steps])
+        st, _ = run_install(opts)
+        self.assertEqual(self.asked(), [])
+        self.assertFalse(os.path.exists(os.path.join(t_mo2, "mods", "Gore", "zgo_bake_report.json")))
+        self.assertTrue(os.path.exists(os.path.join(t_mo2, "mods", "Gore", "notes.txt")))
+        self.assertIsNone(st.get("bake"))
+
+    def test_an_update_of_the_mod_keeps_its_bake(self):
+        d = os.path.join(self.d, "update")
+        toml = make_source(d)
+        dist = os.path.join(d, "dist")
+        build(toml, dist)
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no"}):
+            t_mo2, _, _ = self.install("update", source=dist)
+        self.asked()
+        write(os.path.join(d, "src", "gamma", "mods", "Gore", "gamedata", "scripts", "zgo_main.script"),
+              'local x = 2\nVERSION = "1.8.1"\n')
+        build(toml, dist)
+        st, logs = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=dist, steam=False))
+        self.assertTrue(any("Kept the 2 baked files" in m for _, m in logs), logs)
+        self.assertEqual(self.asked(), ["--check"])               # still fits: not fetched, not baked
+        self.assertEqual(self.mesh(t_mo2), b"baked here")
+        gore = os.path.join(t_mo2, "mods", "Gore")
+        with open(os.path.join(gore, "gamedata", "scripts", "zgo_main.script")) as f:
+            self.assertIn("1.8.1", f.read())
+
+    def test_the_bits(self):
+        from umbra_installer import prebake
+        self.assertEqual(prebake.parse_result(["x", "RESULT body=ok props=stale kid=off", "RESULT match=no fingerprint=ab",
+                                               "done"]), {"match": "no", "fingerprint": "ab"})
+        self.assertEqual(prebake.parse_result(["no result"]), {})
+        self.assertAlmostEqual(prebake.progress_of("  [models] Baking 120/480 actors\\x"), 0.25)
+        self.assertIsNone(prebake.progress_of("Baked 4790/4790 models"))
+        self.assertIsNone(prebake.progress_of("  [models] 3/0"))
+        self.assertAlmostEqual(prebake.progress_of("  [models] Baking models 2395/4790 actors\\x"), 0.55)
+        self.assertAlmostEqual(prebake.progress_of("  [models] Reading your mod list 10/10 "), 0.2)
+        old, new, tmp = (os.path.join(self.d, "bits", x) for x in ("old", "new", "tmp"))
+        write(os.path.join(old, "zgo_bake_report.json"), json.dumps(
+            {"files": ["a/x.ogf", "a/y.ogf", "../escape.txt", "C:/no.txt", "shipped.script"]}))
+        write(os.path.join(old, "zgo_fracture_report.json"), json.dumps({"files": ["p/q.ogf"]}))
+        for rel in ("a/x.ogf", "a/y.ogf", "p/q.ogf", "shipped.script", "mine.txt"):
+            write(os.path.join(old, rel), b"old " + rel.encode())
+        write(os.path.join(self.d, "bits", "escape.txt"), b"outside")
+        self.assertEqual(prebake.generated(old), {"zgo_bake_report.json", "zgo_fracture_report.json", "a/x.ogf",
+                                                  "a/y.ogf", "p/q.ogf", "shipped.script"})
+        write(os.path.join(new, "shipped.script"), b"the layer's own")
+        self.assertEqual(prebake.carry_generated(old, new, {"shipped.script"}), 5)
+        self.assertEqual(read_bytes(os.path.join(new, "shipped.script")), b"the layer's own")
+        self.assertEqual(read_bytes(os.path.join(new, "p", "q.ogf")), b"old p/q.ogf")
+        self.assertFalse(os.path.exists(os.path.join(new, "mine.txt")))      # not the bake's: the layer's business
+        # a new bake in place of the old: the old one's files go, the reports go in last
+        write(os.path.join(tmp, "zgo_bake_report.json"), json.dumps({"files": ["a/x.ogf", "b/z.ogf"]}))
+        write(os.path.join(tmp, "a", "x.ogf"), b"new x")
+        write(os.path.join(tmp, "b", "z.ogf"), b"new z")
+        names = ["zgo_bake_report.json", "a/x.ogf", "b/z.ogf"]
+        prebake.remove_old(new, names)
+        self.assertFalse(os.path.exists(os.path.join(new, "a", "y.ogf")))
+        self.assertFalse(os.path.exists(os.path.join(new, "zgo_fracture_report.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.d, "bits", "escape.txt")))
+        prebake.move_in(tmp, new, names)
+        self.assertEqual(read_bytes(os.path.join(new, "a", "x.ogf")), b"new x")
+        self.assertEqual(prebake.generated(new), {"zgo_bake_report.json", "a/x.ogf", "b/z.ogf"})
 
 
 class Safety(unittest.TestCase):

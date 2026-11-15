@@ -13,6 +13,8 @@ Umbra Setup: installs Umbra (G.A.M.M.A. + the Umbra layer) on Windows and Linux.
                                         (a re-run keeps the last install's picks unless told)
       --no-profile-shortcuts            no Steam shortcut for extra profiles (if the pack has any)
       --repair                          also reinstall any Umbra mod whose folder lost files
+      --no-bake                         leave Umbra Gore & Effects' body models alone (no prebaked
+                                        download, no bake; its own Setup can do it later)
     umbra-setup --plan ...              only say what would happen
     umbra-setup --selftest              check that this program works here
     umbra-setup --launcher [--work DIR] [-- STEAM_COMMAND...]
@@ -126,6 +128,8 @@ def parse(argv):
     ap.add_argument("--no-profile-shortcuts", action="store_true",
                     help="no Steam shortcut for extra profiles (if the pack has any)")
     ap.add_argument("--repair", action="store_true")
+    ap.add_argument("--no-bake", action="store_true",
+                    help="leave Umbra Gore & Effects' body models alone (no prebaked download, no bake)")
     ap.add_argument("--launcher", action="store_true")
     ap.add_argument("--work", default=None, help="the launcher: the install's .umbra folder")
     ap.add_argument("--plan", action="store_true")
@@ -139,7 +143,8 @@ def cli(a):
         mode="new" if a.install_to else "existing", root=a.install_to, mo2_dir=a.add_to,
         source=a.source or built_in_source(), channel=a.channel, steam=not a.no_steam, compat_tool=a.proton,
         threads=a.threads, mirror=not a.no_mirror, gamma_cache=a.gamma_cache,
-        profile_shortcuts=not a.no_profile_shortcuts, repair=a.repair, shortcuts=not a.no_shortcuts)
+        profile_shortcuts=not a.no_profile_shortcuts, repair=a.repair, shortcuts=not a.no_shortcuts,
+        bake=not a.no_bake)
     last = {}
 
     def log(msg, level="info"):

@@ -22,13 +22,15 @@ import sys
 import threading
 import time
 import traceback
+import zipfile
 
-from . import VERSION, fetch, gammacli, layers, mo2, packdef, runtime, shortcuts, steam, userltx
+from . import VERSION, fetch, gammacli, layers, mo2, packdef, prebake, runtime, shortcuts, steam, userltx
 
 GAMMA_BYTES = 150 * 10 ** 9          # stalker-gamma-cli: "This will take ~150GB"
 STEPS = [("pack", "Reading the pack", 1), ("origins", "Getting mods from their authors' own pages", 2),
          ("gamma", "Installing G.A.M.M.A.", 60), ("download", "Downloading Umbra", 25),
          ("layers", "Unpacking Umbra", 10), ("profile", "Setting up the Umbra profiles", 1),
+         ("bake", "Body models for Umbra Gore & Effects", 15),
          ("settings", "Applying Umbra's settings", 1),
          ("runtime", "Getting what the game needs from Microsoft (Visual C++, DirectX)", 2),
          ("launcher", "Installing the Umbra launcher", 1),
@@ -153,7 +155,7 @@ def open_log(work):
 class Options:
     def __init__(self, mode="new", root=None, mo2_dir=None, source=None, channel="stable", steam=True,
                  compat_tool=None, steam_user=None, threads=4, mirror=True, gamma_cache=None, choices=None,
-                 profile_shortcuts=True, repair=False, shortcuts=True):
+                 profile_shortcuts=True, repair=False, shortcuts=True, bake=True):
         self.mode = mode                  # "new" | "existing"
         self.root = root                  # new: the install folder
         self.mo2_dir = mo2_dir            # existing: the G.A.M.M.A. MO2 folder
@@ -169,6 +171,7 @@ class Options:
                                           # had last time, else the pack's defaults
         self.profile_shortcuts = profile_shortcuts   # a Steam shortcut for each extra profile picked
         self.repair = repair              # also reinstall a mod whose folder lost files
+        self.bake = bake                  # Umbra Gore & Effects' body models: prebaked or baked here
         self.shortcuts = shortcuts        # the Start menu / applications menu and the desktop (start
                                           # without Steam): True make them, False leave them alone,
                                           # None (the launcher's own runs) make them only for an
@@ -332,6 +335,7 @@ class Installer:
                 v["bytes"] for L in p.pack["layers"] for v in L["volumes"])
             if self.o.mode == "new" and not os.path.exists(os.path.join(P["mo2"], "ModOrganizer.exe")):
                 p.need_bytes += GAMMA_BYTES
+            p.need_bytes += self._bake_bytes(P, p.pack, p.choices, p.warnings)
             target = P["root"] if self.o.mode == "new" else P["mo2"]
             try:
                 p.free_bytes = fetch.free_bytes(target)
@@ -364,7 +368,9 @@ class Installer:
         p.steps = [s for s in STEPS if not (s[0] == "gamma" and self.o.mode == "existing")
                    and not (s[0] == "steam" and not self.o.steam)
                    and not (s[0] == "shortcuts" and self.o.shortcuts is False)
-                   and not (s[0] == "origins" and not (p.pack and packdef.origins(p.pack, p.choices)))]
+                   and not (s[0] == "origins" and not (p.pack and packdef.origins(p.pack, p.choices)))
+                   and not (s[0] == "bake" and not (self.o.bake and p.pack and any(
+                       L.get("bake") for L in packdef.chosen_layers(p.pack, p.choices))))]
         return p
 
     def _origins(self, pack, choices, fetcher):
@@ -405,6 +411,27 @@ class Installer:
             if m and m.get("volumes") != layers.volume_keys(L):
                 out.append(name)
         return out
+
+    def _bake_bytes(self, P, pack, choices, notes):
+        """Room for Umbra Gore & Effects' body models when it has none yet: the prebaked
+        download and its files (a bake on this machine makes about as much)."""
+        if not self.o.bake:
+            return 0
+        mods_dir = os.path.join(P["mo2"], "mods") if P["mo2"] else None
+        for L in packdef.chosen_layers(pack, choices):
+            if not L.get("bake"):
+                continue
+            if mods_dir and os.path.isdir(mods_dir):
+                folder, _ = layers.installed(mods_dir, L, packdef.other_ids(pack, L))
+                if os.path.isfile(os.path.join(mods_dir, folder, prebake.BODY_REPORT)):
+                    return 0
+            b = L["bake"]
+            if b.get("download"):
+                notes.append("Umbra Gore & Effects' body models: Setup downloads the prebaked ones (%s) when they "
+                             "fit your mod list, else bakes them on this computer (a few minutes)."
+                             % packdef.human(b["download"]))
+            return b.get("download", 0) + b.get("bytes", 0)
+        return 0
 
     def _unpack_bytes(self, P, pack, choices):
         """What unpacking takes: the chosen layers not already in place."""
@@ -562,6 +589,10 @@ class Installer:
         self.log('Mod Organizer 2 opens the "%s" profile now; G.A.M.M.A.\'s own profile is unchanged.' % main["name"])
         self.progress("profile", 1.0, "done")
 
+        # ---- Umbra Gore & Effects' body models: prebaked when they fit, else baked here
+        bake_state = self._bake(chosen, P, fetcher, folders, main["name"], mods_dir) if self.o.bake else None
+        self.progress("bake", 1.0, "done")
+
         # ---- settings: user.ltx and Mod Organizer 2's Run list
         self._settings(pack, profs, P)
         exe_titles = self._executables(pack, profs, P, state)
@@ -591,6 +622,7 @@ class Installer:
                       "choices": sorted(choices),
                       "mode": self.o.mode, "mo2": P["mo2"], "anomaly": P["anomaly"], "cache": P["cache"],
                       "launcher": launcher, "folders": folders,
+                      "bake": bake_state or state.get("bake"),
                       "profiles": [pr["name"] for pr in profs], "executables": exe_titles,
                       "steam_appid": appid, "steam_shortcuts": shortcuts, "shortcuts": made,
                       "compat_tool": self.o.compat_tool or state.get("compat_tool"),
@@ -599,6 +631,153 @@ class Installer:
         self._write_credits(P, pack)
         self.log("Done in %s." % took(time.time() - t0))
         return state
+
+    # ---------------------------------------------------------------- the bake (prebake.py)
+
+    def _bake(self, chosen, P, fetcher, folders, profile, mods_dir):
+        """Umbra Gore & Effects' body models for this install: up to date already, the
+        prebaked bake when it fits this mod list, else baked here by Umbra Effects Setup.
+        Returns {"how": ..., "fingerprint": ...} for the state file. A bake that fails only
+        costs the clean cuts: the mod works without it and says so in the game."""
+        L = next((x for x in chosen if x.get("bake")), None)
+        if L is None:
+            return None
+        folder = folders.get(L["id"]) or L["folder"]
+        zdir = os.path.join(mods_dir, folder)
+        prog = prebake.program(zdir)
+        if not prog:
+            self.log("Umbra Gore & Effects has no %s, so its body models were not baked" % prebake.PROGRAM, "warn")
+            return {"how": "none"}
+        from .launcher import child_env      # launcher imports this module
+        env = child_env()
+        work = os.path.join(P["work"], "bake")
+        args = ["--mod", zdir, "--mo2", P["mo2"], "--profile", profile, "--game", P["anomaly"]]
+        toks = layers.tokens(P["mo2"], P["anomaly"], zgo_cache_dir(), under_wine=(os.name != "nt"),
+                             profile=profile, zgo_folder=folder)
+
+        def zgo(more, what, lo=0.0, hi=1.0):
+            def on_line(line):
+                f = prebake.progress_of(line)
+                if f is not None:
+                    self.progress("bake", lo + (hi - lo) * f, "%s: %s" % (what, line.strip()[:100]))
+            # a bake is minutes on a fast machine; the limits only stop one that hangs
+            code, lines = prebake.run(prog, args + more, work, env, on_line, self.cancelled,
+                                      timeout=(4 if "--bake" in more else 1) * 3600)
+            if code is None:
+                raise prebake.BakeError(lines[0])
+            return code, lines, prebake.parse_result(lines)
+
+        try:
+            return self._bake_with(L, zdir, mods_dir, fetcher, toks, zgo)
+        except prebake.BakeError as e:
+            self.log("%s. Umbra Gore & Effects works without its body models (cut limbs look rougher); run Umbra "
+                     "Effects Setup from its folder (tools/zgo_setup) to bake them." % e, "warn")
+            return {"how": "failed"}
+
+    def _bake_with(self, L, zdir, mods_dir, fetcher, toks, zgo):
+        self.progress("bake", 0.0, "checking the body models")
+        _, _, res = zgo(["--check"], "Checking")
+        how, fp = None, None
+        if res.get("body") in ("ok", "order"):
+            how = "up to date"
+            self.log("Umbra Gore & Effects' body models are in place and fit your mod list")
+        else:
+            fp = self._prebaked(L, zdir, mods_dir, fetcher, toks, zgo)
+            if fp:
+                _, _, res = zgo(["--check"], "Checking")
+                if res.get("body") in ("ok", "order"):
+                    how = "prebaked"
+                else:
+                    self.log("Umbra Effects Setup does not accept the prebaked body models (%s); baking them here "
+                             "instead" % (res.get("body") or "no answer"), "warn")
+        if how is None:
+            self.log("Baking Umbra Gore & Effects' body models for your mod list: a few minutes, using every CPU core")
+            code, lines, res = zgo(["--bake", "--yes"], "Baking", 0.05, 1.0)
+            if code == 0:
+                how = "baked here"
+                for line in lines:
+                    if line.startswith("Baked "):
+                        self.log(line.strip())
+                return {"how": how, "fingerprint": fp}
+            tail = [x for x in lines if x.strip()][-4:]
+            raise prebake.BakeError("Umbra Effects Setup could not bake the body models (exit %s): %s"
+                                    % (code, " | ".join(tail) or "no output"))
+        # the bake is in: breakable props and kid mode for particles depend on the mod list too
+        if res.get("props") not in (None, "ok", "none"):
+            code, _, _ = zgo(["--props", "--yes"], "Cutting the props", 0.9, 1.0)
+            self.log("Cut the breakable props for your mod list" if code == 0 else
+                     "Umbra Effects Setup could not cut the breakable props (exit %s)" % code,
+                     "info" if code == 0 else "warn")
+        if res.get("kid") not in (None, "ok", "off", "none"):
+            zgo(["--kid-particles-apply", "--yes"], "Kid mode for particles")
+        return {"how": how, "fingerprint": fp}
+
+    def _prebaked(self, L, zdir, mods_dir, fetcher, toks, zgo):
+        """Download the layer's prebaked bake and put it in place, if Umbra Effects Setup says
+        it fits this mod list. Returns its fingerprint, or None (bake here instead)."""
+        ref = L["bake"]
+        tmp = os.path.join(mods_dir, ".umbra-tmp-bake")
+        saved = fetcher.progress
+        try:
+            self.progress("bake", 0.02, "getting the prebaked bake's report")
+            fetcher.fetch_all([ref])
+            with open(fetcher.path(ref), "rb") as f:
+                b = packdef.check_bake(packdef.loads(f.read(), "the bake manifest"), ref)
+            fetcher.fetch_all([b["report"]])
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(tmp)
+            names = layers.unpack([fetcher.path(b["report"])], tmp)
+            if prebake.BODY_REPORT not in names:
+                raise prebake.BakeError("its report is missing")
+            layers.relocate(tmp, [r for r in b.get("relocate", []) if r in names], toks)
+            code, lines, res = zgo(["--match", tmp], "Comparing")
+            if "match" not in res:                  # an Umbra Effects Setup from before 1.8.0, or it failed
+                tail = [x.strip() for x in lines if x.strip()][-2:]
+                self.log("Umbra Effects Setup could not compare the prebaked body models with your mod list (exit "
+                         "%s: %s); baking them for yours instead" % (code, " | ".join(tail) or "no output"))
+                return None
+            if res.get("match") != "yes":
+                why = [x.strip()[2:] for x in lines if x.startswith("  - ")][:3]
+                self.log("The prebaked body models were made for another mod list (%s); baking them for yours "
+                         "instead" % ("; ".join(why) or "Umbra Effects Setup said no, exit %s" % code))
+                return None
+            vols = b["volumes"]
+            left = [v for v in vols if not fetcher.have(v)]
+            need = sum(v["size"] for v in left) + b.get("bytes", 0)
+            free = prebake.disk_free(mods_dir)
+            if free is not None and free < need:
+                raise prebake.BakeError("%s free on the drive, %s needed" % (packdef.human(free), packdef.human(need)))
+            self.log("The prebaked body models fit your mod list: downloading them (%s, %d models)"
+                     % (packdef.human(sum(v["size"] for v in left)), b.get("models", 0)))
+            fetcher.progress = lambda done, total, msg="": self.progress(
+                "bake", 0.05 + 0.75 * ((done / total) if total else 1.0),
+                "downloading %s of %s%s" % (packdef.human(done), packdef.human(total),
+                                            ("; " + msg) if "retrying" in msg else ""))
+            fetcher.fetch_all(vols)
+            shutil.rmtree(tmp)
+            os.makedirs(tmp)
+            paths = [fetcher.path(v) for v in [b["report"]] + vols]
+            names = layers.unpack(paths, tmp, lambda d, t, rel: self.progress(
+                "bake", 0.8 + 0.15 * (d / t if t else 1.0), "unpacking: %s" % rel), self.cancelled)
+            layers.relocate(tmp, b.get("relocate", []), toks)
+            prebake.remove_old(zdir, names)
+            prebake.move_in(tmp, zdir, names)
+            for v in vols:                  # unlike the layers' volumes, Repair never needs these
+                for f in (fetcher.path(v), fetcher.path(v) + ".ok"):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
+            self.log("Put the prebaked body models in place: %d files (fingerprint %s)" % (len(names),
+                                                                                          b["fingerprint"]))
+            return b["fingerprint"]
+        except (fetch.FetchError, packdef.PackError, prebake.BakeError, zipfile.BadZipFile, OSError,
+                ValueError) as e:
+            self.log("The prebaked body models could not be used (%s); baking them here instead" % e, "warn")
+            return None
+        finally:
+            fetcher.progress = saved
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def _renamed(self, pack, P, mods_dir):
         """Mods the pack has renamed (a layer's "was"): an earlier Umbra's folder takes the new

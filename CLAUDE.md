@@ -43,10 +43,11 @@ explains how it all works; read its sections before changing a part.
 
 - Installers: `dev/build_installer/build.sh linux|windows|all|verify` (see its README).
   Windows builds need a Wine that runs 32-bit programs; the script picks GE-Proton's.
-- Pack: `dev/pack_build.py`. Dry-run first and compare layer sizes with the last build; a
-  ZGO folder that lost its bake ships ZGO without its body models (expect about 7.8 GB for
-  the zgo layer).
-- Hosting: `dev/b2_upload.py` (`--dry-run` first).
+- Pack: `dev/pack_build.py`. Dry-run first and compare layer sizes with the last build. The
+  ZGO bake is split out of the zgo layer into `umbra-effects/<fingerprint>/` (about 7.2 GB unpacked;
+  the layer itself about 0.5 GB); a ZGO folder that lost its bake makes every player bake.
+  `--bake-only` builds just the bake.
+- Hosting: `dev/b2_upload.py` (`--dry-run` first; `--bakes` publishes only the bakes).
 - Releases: GitHub Actions (`.github/workflows/build.yml`) builds and checks Setup on every push
   and drafts a release for a `vX.Y.Z` tag matching `VERSION`. Pushing a tag and publishing the
   draft are the maintainer's call. The pack is never built in Actions.

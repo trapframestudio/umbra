@@ -341,6 +341,9 @@ class FakeB2:
                     self.files[name] = {"meta": meta, "data": data, "parts": None}
                     self.completed.append(name)
                     res = 200, meta
+                # free before replying: the client may hand the URL to its next upload as soon as
+                # the reply is in, before this thread gets to the finally below
+                self.busy.discard(path)
             h.send_json(*res)
         finally:
             with self.lock:
@@ -432,6 +435,18 @@ def referenced(pack):
     return {o["path"]: o for o in objs}
 
 
+def baked(pack, dist):
+    """umbra-effects/... -> entry: the prebaked bakes the pack's layers name, their reports and volumes."""
+    out = {}
+    for L in pack["layers"]:
+        if L.get("bake"):
+            out[L["bake"]["path"]] = L["bake"]
+            with open(os.path.join(dist, *L["bake"]["path"].split("/")), encoding="utf-8") as f:
+                b = json.load(f)
+            out.update((v["path"], v) for v in [b["report"]] + b["volumes"])
+    return out
+
+
 class B2Upload(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -445,8 +460,9 @@ class B2Upload(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.pack = build(toml, cls.template)
         cls.refs = referenced(cls.pack)
+        cls.bakes = baked(cls.pack, cls.template)
         cls.pack_rel = "packs/umbra-%s.json" % cls.pack["version"]
-        cls.expected = set(cls.refs) | {cls.pack_rel, "CREDITS.md", "channels/stable.json"}
+        cls.expected = set(cls.refs) | set(cls.bakes) | {cls.pack_rel, "CREDITS.md", "channels/stable.json"}
         cls.large = sorted(p for p, o in cls.refs.items() if o["size"] > THRESHOLD)
         # every file that goes up in parts (the pack manifest is over the tiny test threshold too)
         cls.large_all = sorted(n for n in cls.expected
@@ -510,7 +526,7 @@ class B2Upload(unittest.TestCase):
             self.assertEqual(meta["contentType"], {".zip": "application/zip", ".json": "application/json",
                                                    ".txt": "text/plain", ".md": "text/markdown; charset=utf-8"}[ext])
             self.assertEqual(meta["fileInfo"]["b2-cache-control"],
-                             "public, max-age=31536000, immutable" if name.startswith("objects/")
+                             "public, max-age=31536000, immutable" if name.startswith(("objects/", "umbra-effects/"))
                              else "public, max-age=300", name)
             if f.files[name]["parts"] is None:                       # a plain upload: B2's SHA1 of the file
                 self.assertEqual(meta["contentSha1"], sha1(data), name)
@@ -526,9 +542,15 @@ class B2Upload(unittest.TestCase):
                          "the key went somewhere other than b2_authorize_account")
 
     def assert_order(self, names, prefix=""):
-        """Objects, then packs (and CREDITS.md), then the channel last."""
+        """Objects (and the bakes' volumes), then the bake manifests, then packs (and CREDITS.md),
+        then the channel last."""
         names = [n[len(prefix):] for n in names]
-        rank = {n: (0 if n.startswith("objects/") else 2 if n.startswith("channels/") else 1) for n in names}
+
+        def rank(n):
+            if n.startswith("objects/") or (n.startswith("umbra-effects/") and n.endswith(".zip")):
+                return 0
+            return 1 if n.startswith("umbra-effects/") else 3 if n.startswith("channels/") else 2
+        rank = {n: rank(n) for n in names}
         self.assertEqual([rank[n] for n in names], sorted(rank[n] for n in names), names)
         self.assertEqual(names[-1], "channels/stable.json")
 
@@ -763,6 +785,62 @@ class B2Upload(unittest.TestCase):
         self.assertEqual(code, 3, out)
         self.assertIn("FAIL channels/stable.json", out)
         self.assert_published()
+
+    def test_bakes_alone(self):
+        """--bakes: Umbra Gore & Effects' prebaked bakes go up in their own folder; no pack, no channel."""
+        f = self.fake
+        code, out = self.run_cli("--dry-run", *self.upload_args("--bakes"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("Total: %d files" % len(self.bakes), out)
+        self.assertNotIn("channels/", out)
+        code, out = self.run_cli(*self.upload_args("--bakes", "--channel", "stable"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("leave out --channel", out)
+        code, out = self.run_cli(*self.upload_args("--bakes", "--yes", "--base-url-check",
+                                                   f.url + "/file/" + f.bucket_name))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(set(f.files), set(self.bakes))
+        self.assertEqual(f.completed[-1], next(n for n in self.bakes if n.endswith(".json")))   # the manifest last
+        for n in self.bakes:
+            self.assertEqual(f.files[n]["data"], self.local(n), n)
+            self.assertEqual(f.files[n]["meta"]["fileInfo"]["b2-cache-control"], "public, max-age=31536000, immutable")
+        self.assertRegex(out, r"ok   umbra-effects/abababab\.\.\./[0-9a-f]{12}\.\.\.\.json")
+        # the full publish afterwards skips them
+        code, out = self.run_cli(*self.upload_args("--yes"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("%d files already there" % len(self.bakes), out)
+        self.assert_published()
+
+    def test_bakes_are_checked(self):
+        vol = sorted(n for n in self.bakes if n.endswith(".zip"))[0]
+        with open(os.path.join(self.dist, *vol.split("/")), "ab") as fh:
+            fh.write(b"x")
+        code, out = self.run_cli("--dry-run", *self.upload_args("--bakes"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("damaged; rebuild the bake", out)
+        os.remove(os.path.join(self.dist, *vol.split("/")))
+        code, out = self.run_cli("--dry-run", *self.upload_args("--bakes"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("rebuild the bake", out)
+        shutil.rmtree(os.path.join(self.dist, "umbra-effects"))
+        code, out = self.run_cli("--dry-run", *self.upload_args("--bakes"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("--bake-only", out)
+        self.assertEqual(self.fake.completed, [])
+
+    def test_a_pack_whose_bake_is_only_in_the_bucket(self):
+        """Built once, uploaded, then left out of DIST: the pack still goes up when B2 has the bake."""
+        f = self.fake
+        code, out = self.run_cli(*self.upload_args("--bakes", "--yes"))
+        self.assertEqual(code, 0, out)
+        shutil.rmtree(os.path.join(self.dist, "umbra-effects"))
+        code, out = self.run_cli(*self.upload_args("--yes"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(set(f.files), self.expected)
+        f.files.pop(next(n for n in self.bakes if n.endswith(".json")))
+        code, out = self.run_cli(*self.upload_args("--yes"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("neither in", out)
 
     def test_prefix_and_downgrade(self):
         f = self.fake

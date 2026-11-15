@@ -7,12 +7,13 @@ bucket, ideally behind Cloudflare):
     channels/<channel>.json   {"format": 1, "version": "...", "pack": "packs/umbra-<v>.json", "sha256": "..."}
     packs/umbra-<v>.json      the pack manifest (below), checked against the channel's sha256
     objects/<sha256>.<ext>    every file the manifest names, checked against its sha256
+    umbra-effects/<fingerprint>/<sha256>.<ext>   prebaked body models for Umbra Gore & Effects (below)
 
 The channel file is the only thing that changes in place; publishing a new
 version uploads the new objects and pack first, then switches the channel.
 
-Pack manifest, format 4 (4 added volumes that come from their author's own
-page; 3 added options with choices):
+Pack manifest, format 5 (5 added a layer's prebaked bake; 4 added volumes that
+come from their author's own page; 3 added options with choices):
 
     {
       "format": 3,
@@ -40,6 +41,7 @@ page; 3 added options with choices):
          "preserve": true | ["gamedata/configs/*.ltx"],   # the player's edits survive updates
          "was": ["Old Folder Name"],      # the folder's earlier names: Setup renames an installed one
          "meta_ini": "[General]\\r\\n...",   # MO2's meta.ini, for a layer whose volume has none
+         "bake": <bake object>,           # Umbra Gore & Effects' layer: its prebaked bake (below)
          "volumes": [<object> | <origin>, ...]}
       ],
       "dependencies": [{"id", "title", "url", "profile", "required", "fetched", "notes"}],
@@ -87,6 +89,28 @@ Anomaly). A profile whose engine needs other settings gets its own file
 as a copy of "seed" with "lines" applied over it; after that only missing
 keys are added, like user.ltx itself.
 
+Prebaked bakes: Umbra Gore & Effects bakes its body models for the player's own
+mod list (Umbra Effects Setup, tools/zgo_setup in its folder). Umbra publishes
+that bake, made for the pack's mod list, in its own folder of the bucket, named
+by the bake's fingerprint (the same mod list content gives the same fingerprint
+on every machine). The layer is the mod without it; the layer's "bake" is the
+bake's manifest, <bake object> = {"path": "umbra-effects/<fingerprint>/<sha256>.json",
+"sha256", "size", "download": <its volumes' bytes>, "bytes": <unpacked>} (the
+last two for the plan's free-space check):
+
+    {"format": 1, "kind": "umbra-effects-bake", "fingerprint": "<md5 hex>",
+     "baker": 3, "zgo": "1.8.0", "made": "2026-11-15 12:00:00", "models": 4790,
+     "files": 83789, "bytes": 7.7e9,
+     "relocate": ["zgo_bake_report.json", ...],   # files with @@UMBRA_*@@ tokens
+     "report": <volume>,                          # the reports alone, fetched first
+     "volumes": [<volume>, ...]}                  # the baked files
+
+with every <volume> = {"path": "umbra-effects/<fingerprint>/<sha256>.zip", "sha256",
+"size", "files", "bytes"}. Setup unpacks the report volume first and asks the
+installed Umbra Effects Setup whether it fits the player's mod list (--match);
+only then does it download the rest. When it does not fit, or the download
+fails, Umbra Effects Setup bakes for the player's mod list instead.
+
 Relocation tokens (dev/pack_build.py writes them in place of the source
 machine's paths; layers.relocate() puts the player's in):
 
@@ -96,13 +120,17 @@ machine's paths; layers.relocate() puts the player's in):
     @@UMBRA_ANOMALY_WIN@@  the same as the game sees it
     @@UMBRA_ZGO_CACHE@@    Umbra Gore & Effects' baker work folder (its bake.py cache_dir)
 Each comes in a JSON/Lua-escaped variant with _ESC appended (backslashes doubled).
+A bake also has two names:
+    @@UMBRA_PROFILE@@      the MO2 profile it is installed for (the pack's main profile)
+    @@UMBRA_ZGO_FOLDER@@   Umbra Gore & Effects' folder in MO2's mods folder
 """
 import fnmatch
 import hashlib
 import json
 import re
 
-FORMAT = 4
+FORMAT = 5
+BAKE_FORMAT = 1
 TOKENS = ("MO2", "ANOMALY", "ZGO_CACHE")
 MAIN = "main"                         # the main profile's id
 
@@ -132,13 +160,14 @@ _SHA = re.compile(r"^[0-9a-f]{64}$")
 _URL = re.compile(r"^https?://[^\s\"'<>]+$")
 
 
-def check_object(o, what):
+def check_object(o, what, prefix=None):
+    """prefix: the folder its path must be in (default objects/, origins/ for an origin)."""
     if not isinstance(o, dict):
         raise PackError("%s: not an object entry" % what)
     if not _SHA.match(str(o.get("sha256", ""))):
         raise PackError("%s: bad sha256" % what)
     p = str(o.get("path", ""))
-    if not p.startswith("origins/" if "origin" in o else "objects/") or ".." in p or "\\" in p:
+    if not p.startswith(prefix or ("origins/" if "origin" in o else "objects/")) or ".." in p or "\\" in p:
         raise PackError("%s: bad path %r" % (what, p))
     if not isinstance(o.get("size"), int) or o["size"] < 0:
         raise PackError("%s: bad size" % what)
@@ -243,6 +272,15 @@ def check_pack(p):
             raise PackError("%s: meta_ini is text, for a mods layer" % what)
         for j, v in enumerate(L["volumes"]):
             check_object(v, "%s volume %d" % (what, j))
+        if "bake" in L:
+            if L.get("target", "mods") != "mods":
+                raise PackError("%s: only a mods layer has a bake" % what)
+            check_object(L["bake"], what + " bake", prefix=BAKE_DIR + "/")
+            if not _BAKE_PATH.match(L["bake"]["path"]) or \
+                    _BAKE_PATH.match(L["bake"]["path"]).group(2) != L["bake"]["sha256"]:
+                raise PackError("%s: bad bake path %r" % (what, L["bake"]["path"]))
+            if not all(isinstance(L["bake"].get(k, 0), int) and L["bake"].get(k, 0) >= 0 for k in ("download", "bytes")):
+                raise PackError("%s: bad bake sizes" % what)
     folders = {L["folder"].lower() for L in p["layers"] if L.get("target", "mods") == "mods"}
     olds = [x.lower() for L in p["layers"] for x in L.get("was", [])]
     if len(olds) != len(set(olds)) or folders & set(olds):
@@ -251,6 +289,48 @@ def check_pack(p):
         if not d.get("id") or not d.get("title"):
             raise PackError("a dependency has no id or title")
     return p
+
+
+BAKE_DIR = "umbra-effects"       # the bucket folder of the prebaked bakes
+_BAKE_PATH = re.compile(r"^%s/([0-9a-f]{32})/([0-9a-f]{64})\.(json|zip)$" % BAKE_DIR)
+
+
+def check_bake(b, ref=None):
+    """A prebaked bake's manifest (see the top); ref: the layer's bake object it was fetched by."""
+    if not isinstance(b, dict) or b.get("kind") != "umbra-effects-bake":
+        raise PackError("the bake manifest is not one")
+    if b.get("format") != BAKE_FORMAT:
+        raise PackError("this installer reads bake format %d; the bake says %r. Get the newest installer."
+                        % (BAKE_FORMAT, b.get("format")))
+    fp = str(b.get("fingerprint", ""))
+    if not re.match(r"^[0-9a-f]{32}$", fp):
+        raise PackError("the bake has a bad fingerprint")
+    if ref is not None:
+        m = _BAKE_PATH.match(str(ref.get("path", "")))
+        if not m or m.group(1) != fp:
+            raise PackError("the bake manifest is not the one its pack names")
+    vols = b.get("volumes")
+    if not isinstance(vols, list) or not vols:
+        raise PackError("the bake has no volumes")
+    for j, v in enumerate([b.get("report")] + vols):
+        what = "bake report" if j == 0 else "bake volume %d" % j
+        check_object(v, what, prefix="%s/%s/" % (BAKE_DIR, fp))
+        m = _BAKE_PATH.match(v["path"])
+        if not m or m.group(2) != v["sha256"] or m.group(3) != "zip":
+            raise PackError("%s: bad path %r" % (what, v["path"]))
+    rel = b.get("relocate", [])
+    if not isinstance(rel, list) or not all(isinstance(r, str) and safe_rel(r) for r in rel):
+        raise PackError("the bake's relocate list is bad")
+    for k in ("baker", "models", "files", "bytes"):
+        if not isinstance(b.get(k, 0), int):
+            raise PackError("the bake's %s is not a number" % k)
+    return b
+
+
+def safe_rel(r):
+    """A relative path inside a folder: forward slashes, no .., no drive or root."""
+    return bool(r) and not r.startswith("/") and "\\" not in r and ":" not in r and \
+        ".." not in r.split("/")
 
 
 def safe_name(n):

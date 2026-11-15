@@ -13,8 +13,13 @@ Files already in the bucket (same name, same size, same sha256 in the B2 file
 info) are skipped, so running it again only sends what changed. A big file
 whose upload was cut off resumes from the parts B2 already has.
 
-Order: every object first, then the packs (and CREDITS.md), then the channels
-last, so a player never sees a channel that points at something missing.
+Order: every object first (with the volumes of Umbra Gore & Effects' prebaked
+bakes, umbra-effects/<fingerprint>/), then the bake manifests, then the packs (and
+CREDITS.md), then the channels last, so a player never sees a channel that
+points at something missing.
+
+--bakes publishes only the prebaked bakes in DIST/umbra-effects (built with
+dev/pack_build.py --bake-only): no pack, no channel changes.
 
 Checks before anything is sent: every file to upload must match its content
 address (objects/<sha256>.*; a pack must match its channel's sha256), and the
@@ -27,7 +32,7 @@ B2 details: the native API (v3) over plain urllib. Files above
 by B2), with retries and back-off; a failed upload gets a fresh upload URL,
 an expired session signs in again. Content types: .zip application/zip,
 .json application/json, .txt text/plain. Cache hints (b2-cache-control):
-objects "public, max-age=31536000, immutable"; packs, channels and
+objects and bakes "public, max-age=31536000, immutable"; packs, channels and
 CREDITS.md "public, max-age=300".
 
 The key is never printed: every line this tool writes is scrubbed of the key
@@ -78,8 +83,10 @@ CONTENT_TYPES = {".zip": "application/zip", ".json": "application/json", ".txt":
                  ".md": "text/markdown; charset=utf-8"}
 RETRY_STATUS = {408, 429, 500, 502, 503, 504}
 NET_ERRORS = (OSError, http.client.HTTPException)     # urllib.error.URLError is an OSError
-PHASES = ("objects", "packs", "channels")
+PHASES = ("objects", "bakes", "packs", "channels")
 _OBJ = re.compile(r"^objects/([0-9a-f]{64})\.[A-Za-z0-9]+$")
+BAKES = packdef.BAKE_DIR + "/"   # umbra-effects/: Umbra Gore & Effects' prebaked bakes
+_BAKE = re.compile(r"^%s([0-9a-f]{32})/([0-9a-f]{64})\.(json|zip)$" % BAKES)
 
 
 class Refuse(Exception):
@@ -177,13 +184,14 @@ class Item:
 
     @property
     def phase(self):
-        return {"object": "objects", "pack": "packs", "credits": "packs", "channel": "channels"}[self.kind]
+        return {"object": "objects", "bake-volume": "objects", "bake": "bakes", "pack": "packs", "credits": "packs",
+                "channel": "channels"}[self.kind]
 
     def content_type(self):
         return CONTENT_TYPES.get(os.path.splitext(self.rel)[1].lower(), "application/octet-stream")
 
     def cache_control(self):
-        return CACHE_IMMUTABLE if self.kind == "object" else CACHE_SHORT
+        return CACHE_IMMUTABLE if self.kind in ("object", "bake", "bake-volume") else CACHE_SHORT
 
     def info(self):
         d = {"sha256": self.sha256, "b2-cache-control": self.cache_control()}
@@ -203,7 +211,10 @@ class Item:
 
     def short(self):
         m = _OBJ.match(self.rel)
-        return "objects/%s...%s" % (m.group(1)[:12], os.path.splitext(self.rel)[1]) if m else self.rel
+        if m:
+            return "objects/%s...%s" % (m.group(1)[:12], os.path.splitext(self.rel)[1])
+        m = _BAKE.match(self.rel)
+        return "%s%s.../%s...%s" % (BAKES, m.group(1)[:8], m.group(2)[:12], "." + m.group(3)) if m else self.rel
 
 
 class Local:
@@ -212,11 +223,13 @@ class Local:
         self.channels = []
         self.packs = {}
         self.objects = {}
+        self.bakes = {}                # bake manifests and their volumes (umbra-effects/<fingerprint>/...)
         self.credits = None
         self.unreferenced = 0
 
     def items(self):
         out = sorted(self.objects.values(), key=lambda i: i.rel)
+        out += sorted(self.bakes.values(), key=lambda i: (i.kind == "bake", i.rel))
         out += sorted(self.packs.values(), key=lambda i: i.rel)
         if self.credits:
             out.append(self.credits)
@@ -240,6 +253,67 @@ def object_refs(node, out=None):
         for v in node:
             object_refs(v, out)
     return out
+
+
+def add_bake(loc, ref, where):
+    """A prebaked bake (packdef "Prebaked bakes"): its manifest, and if that is in DIST, its
+    report and data volumes. One that is not in DIST must already be in the bucket."""
+    m = _BAKE.match(str(ref.get("path", "")))
+    if not m or m.group(3) != "json" or m.group(2) != ref.get("sha256") or not isinstance(ref.get("size"), int):
+        raise Refuse("%s names a bake manifest that is not content-addressed: %r" % (where, ref.get("path")))
+    if ref["path"] in loc.bakes:
+        return
+    path = os.path.join(loc.dist, *ref["path"].split("/"))
+    it = loc.bakes[ref["path"]] = Item(ref["path"], path, ref["size"], "bake", ref["sha256"])
+    if not os.path.isfile(path):
+        it.local = False
+        return
+    blob = _read(path)
+    if packdef.sha256_bytes(blob) != ref["sha256"] or len(blob) != ref["size"]:
+        raise Refuse("%s does not match what %s says (damaged; rebuild it)" % (ref["path"], where))
+    try:
+        b = packdef.check_bake(packdef.loads(blob, ref["path"]), ref)
+    except packdef.PackError as e:
+        raise Refuse("%s: %s" % (ref["path"], e))
+    for v in [b["report"]] + b["volumes"]:
+        old = loc.bakes.get(v["path"])
+        if old is None:
+            vi = loc.bakes[v["path"]] = Item(v["path"], os.path.join(loc.dist, *v["path"].split("/")), v["size"],
+                                             "bake-volume", v["sha256"])
+            if not os.path.isfile(vi.path):
+                vi.local = False
+            elif os.path.getsize(vi.path) != vi.size:
+                raise Refuse("%s is %d bytes but %s says %d (damaged; rebuild the bake)"
+                             % (vi.rel, os.path.getsize(vi.path), ref["path"], vi.size))
+        elif old.size != v["size"]:
+            raise Refuse("%s is listed with two different sizes" % v["path"])
+
+
+def scan_bakes(dist):
+    """--bakes: every prebaked bake in DIST/umbra-effects, with no pack or channel."""
+    dist = os.path.abspath(dist)
+    bdir = os.path.join(dist, packdef.BAKE_DIR)
+    loc = Local(dist)
+    if os.path.isdir(bdir):
+        for fp in sorted(os.listdir(bdir)):
+            if not os.path.isdir(os.path.join(bdir, fp)):
+                continue
+            for f in sorted(os.listdir(os.path.join(bdir, fp))):
+                if not f.endswith(".json") or f.startswith("."):
+                    continue
+                rel = "%s%s/%s" % (BAKES, fp, f)
+                if not _BAKE.match(rel):
+                    raise Refuse("%s is not a %s<fingerprint>/<sha256>.json name" % (rel, BAKES))
+                blob = _read(os.path.join(bdir, fp, f))
+                add_bake(loc, {"path": rel, "sha256": packdef.sha256_bytes(blob), "size": len(blob)}, rel)
+    if not loc.bakes:
+        raise Refuse("no bakes in %s; build one first (dev/pack_build.py --bake-only)" % bdir)
+    missing = sorted(it.rel for it in loc.bakes.values() if not it.local)
+    if missing:
+        raise Refuse("the bake manifests in %s name %s that %s not there (rebuild the bake):\n    %s"
+                     % (bdir, plural(len(missing), "file"), "is" if len(missing) == 1 else "are",
+                        "\n    ".join(missing[:20])))
+    return loc
 
 
 def scan(dist, only=None):
@@ -297,6 +371,9 @@ def scan(dist, only=None):
                                               "object", o["sha256"])
             elif it.size != o["size"]:
                 raise Refuse("%s is listed with two different sizes" % o["path"])
+        for L in pack["layers"]:
+            if L.get("bake"):
+                add_bake(loc, L["bake"], prel)
     for it in loc.objects.values():
         if not os.path.isfile(it.path):
             it.local = False
@@ -787,8 +864,14 @@ class Publisher:
         self.progress = Progress(sum(it.to_send() for it in items))
         for phase in PHASES:
             todo = [it for it in items if it.phase == phase]
+            vols = [it for it in loc.bakes.values() if it.kind == "bake-volume"]
+            mans = [it for it in loc.bakes.values() if it.kind == "bake"]
+            if phase == "bakes" and todo and vols:
+                self.must_be_there(vols, BAKES, "the bake manifests")
             if phase == "packs" and (todo or any(it.phase == "channels" for it in items)):
                 self.must_be_there(list(loc.objects.values()), "objects/", "the packs")
+                if mans:
+                    self.must_be_there(mans, BAKES, "the packs")
             if phase == "channels" and todo:
                 self.must_be_there(list(loc.packs.values()), "packs/", "the channels")
             if not todo:
@@ -911,8 +994,16 @@ def check_base_url(base, loc):
         else:
             say("  FAIL %s: HTTP %s, %s" % (ch["pack"], st, "wrong sha256" if st == 200 else "not served"))
             ok = False
+    for it in sorted((b for b in loc.bakes.values() if b.kind == "bake" and b.local), key=lambda b: b.rel):
+        st, blob, hdr = http_get(base + "/" + it.rel)
+        if st == 200 and packdef.sha256_bytes(blob) == it.sha256:
+            say("  ok   %s (Cache-Control: %s)" % (it.short(), hdr.get("Cache-Control") or "none"))
+        else:
+            say("  FAIL %s: HTTP %s, %s" % (it.rel, st, "wrong sha256" if st == 200 else "not served"))
+            ok = False
     # a Range request on a small object: the installer resumes broken downloads with these
-    objs = sorted((o for o in loc.objects.values() if o.local and o.size >= 2), key=lambda o: o.size)
+    objs = sorted((o for o in list(loc.objects.values()) + [b for b in loc.bakes.values() if b.kind == "bake-volume"]
+                   if o.local and o.size >= 2), key=lambda o: o.size)
     if objs:
         o = objs[0]
         n = min(16, o.size)
@@ -999,6 +1090,9 @@ def parser():
     ap.add_argument("--channel", metavar="NAME", action="append",
                     help="publish only this channel and what it needs (repeatable; default: every channel in "
                          "DIST/channels)")
+    ap.add_argument("--bakes", action="store_true",
+                    help="publish only the prebaked bakes in DIST/umbra-effects (Umbra Gore & Effects' body models, "
+                         "dev/pack_build.py --bake-only); no pack, no channel changes")
     ap.add_argument("--prefix", metavar="FOLDER", default="",
                     help="publish under this folder of the bucket (default: the bucket root); the base URL then "
                          "ends in it")
@@ -1023,9 +1117,11 @@ def parser():
 
 def dry_run(a, loc, prefix):
     say("Dry run: nothing is sent, and B2 is not asked what it already has, so this is everything the "
-        "selected channels need.")
+        "selected %s need." % ("bakes" if a.bakes else "channels"))
     for it in loc.channels:
         say("  channel %s -> %s (version %s)" % (it.channel, it.pack, it.version))
+    for it in sorted((b for b in loc.bakes.values() if b.kind == "bake"), key=lambda b: b.rel):
+        say("  bake %s" % it.rel)
     items = [it for it in loc.items() if it.local]
     assign_parts(items, a.part_size or DEFAULT_PART, a.large_threshold)
     verify(items, a.threads, threading.Event(), parts=False)
@@ -1036,10 +1132,10 @@ def dry_run(a, loc, prefix):
             % (plural(loc.unreferenced, "older file"), loc.dist))
     if a.base_url_check:
         say("(--base-url-check is skipped in a dry run)")
-    missing = sorted(it.rel for it in loc.objects.values() if not it.local)
+    missing = sorted(it.rel for it in list(loc.objects.values()) + list(loc.bakes.values()) if not it.local)
     if missing:
-        say("MISSING: %s the packs need %s not in %s/objects. A real run accepts them only if the bucket already "
-            "has them; a dry run can't ask:\n    %s" % (plural(len(missing), "object"),
+        say("MISSING: %s the packs need %s not in %s. A real run accepts them only if the bucket already "
+            "has them; a dry run can't ask:\n    %s" % (plural(len(missing), "file"),
                                                         "is" if len(missing) == 1 else "are", loc.dist,
                                                         "\n    ".join(missing[:20])))
         return 1
@@ -1050,7 +1146,9 @@ def run(a):
     prefix = norm_prefix(a.prefix)
     if a.threads < 1:
         raise Refuse("--threads must be 1 or more")
-    loc = scan(a.dist, a.channel)
+    if a.bakes and a.channel:
+        raise Refuse("--bakes publishes no channel; leave out --channel")
+    loc = scan_bakes(a.dist) if a.bakes else scan(a.dist, a.channel)
     if a.dry_run:
         return dry_run(a, loc, prefix)
     key_id = os.environ.get("B2_KEY_ID", "").strip()
@@ -1067,12 +1165,13 @@ def run(a):
     if allowed_prefix and not prefix.startswith(allowed_prefix):
         raise Refuse("this key may only write names starting with %r; use --prefix" % allowed_prefix)
     pub = Publisher(b2, bucket_id, prefix, a.threads)
-    remote = pub.listing(["objects/", "packs/", "channels/", "CREDITS.md"])
+    remote = pub.listing([BAKES] if a.bakes else ["objects/", BAKES, "packs/", "channels/", "CREDITS.md"])
 
-    missing = sorted(it.rel for it in loc.objects.values() if not it.local and not pub.present(it, remote))
+    missing = sorted(it.rel for it in list(loc.objects.values()) + list(loc.bakes.values())
+                     if not it.local and not pub.present(it, remote))
     if missing:
-        raise Refuse("%s the packs need %s neither in %s/objects nor in the bucket:\n    %s"
-                     % (plural(len(missing), "object"), "is" if len(missing) == 1 else "are", loc.dist,
+        raise Refuse("%s the packs need %s neither in %s nor in the bucket:\n    %s"
+                     % (plural(len(missing), "file"), "is" if len(missing) == 1 else "are", loc.dist,
                         "\n    ".join(missing[:20])))
     items = loc.items()
     there = [it for it in items if pub.present(it, remote)]

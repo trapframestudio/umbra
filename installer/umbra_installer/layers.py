@@ -27,7 +27,7 @@ import struct
 import time
 import zipfile
 
-from . import packdef
+from . import packdef, prebake
 
 MARKER = "umbra.layer.json"
 NEW_SUFFIX = ".umbra-new"
@@ -124,13 +124,17 @@ def win_path(path, under_wine):
     return "Z:" + os.path.abspath(path).replace("/", "\\")
 
 
-def tokens(mo2, anomaly, zgo_cache, under_wine):
-    """Token -> the player's path (raw; relocate() escapes where the file format needs it)."""
+def tokens(mo2, anomaly, zgo_cache, under_wine, profile=None, zgo_folder=None):
+    """Token -> the player's path (raw; relocate() escapes where the file format needs it).
+    profile, zgo_folder: the names a prebaked bake has tokens for (packdef)."""
     out = {}
     for name, p in (("MO2", mo2), ("ANOMALY", anomaly), ("ZGO_CACHE", zgo_cache)):
         out["@@UMBRA_%s@@" % name] = p
         out["@@UMBRA_%s_WIN@@" % name] = win_path(p, under_wine)
         out["@@UMBRA_%s_WIN_ESC@@" % name] = win_path(p, under_wine)
+    for name, v in (("PROFILE", profile), ("ZGO_FOLDER", zgo_folder)):
+        if v is not None:
+            out["@@UMBRA_%s@@" % name] = v
     return out
 
 
@@ -314,6 +318,11 @@ def install_mods_layer(mods_dir, layer, volumes, toks, progress=None, cancel=Non
         relocate(tmp, layer.get("relocate", []), toks)
         old_marker = read_marker(final) if os.path.isdir(final) else None
         shipped = keep_players_files(layer, final if old_marker else None, tmp, names, old_marker, log)
+        if layer.get("bake") and old_marker:
+            # Umbra Gore & Effects' bake is in its folder but not part of the layer: it stays
+            moved = prebake.carry_generated(final, tmp, names)
+            if moved and log:
+                log("Kept the %d baked files of Umbra Gore & Effects" % moved)
         info = {"id": layer["id"], "version": layer.get("version", ""), "pack": pack_version,
                 "volumes": volume_keys(layer), "files": len(names)}
         if shipped:
