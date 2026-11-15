@@ -236,8 +236,9 @@ Either way, it then:
      to do.
    - Otherwise it downloads the prebaked bake's report (a few KB), and Umbra
      Effects Setup compares it with the player's mod list (`--match`). If it
-     fits (the same models, compared by content), Setup downloads the rest and
-     puts it in the mod's folder.
+     fits (the same models, compared by content, made with the same settings
+     as the player's own last bake, or the defaults), Setup downloads the rest
+     and puts it in the mod's folder.
    - If it doesn't fit, or the download fails, Umbra Effects Setup bakes for
      the player's own mod list (`--bake`, a few minutes on every CPU core).
    - Then it cuts the breakable props again if they don't fit (`--props`).

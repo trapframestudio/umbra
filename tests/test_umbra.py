@@ -1578,7 +1578,7 @@ class Prebake(unittest.TestCase):
         said = " ".join(m for _, m in logs)
         self.assertIn("could not compare", said)
         self.assertIn("unexpected keyword argument", said)
-        self.assertNotIn("another mod list", said)
+        self.assertNotIn("don't fit this install", said)
 
     def test_a_bake_that_fails_is_a_warning_not_a_failed_install(self):
         with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no", "FAKE_ZGO_BAKE_FAILS": "1"}):

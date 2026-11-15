@@ -738,8 +738,8 @@ class Installer:
                 return None
             if res.get("match") != "yes":
                 why = [x.strip()[2:] for x in lines if x.startswith("  - ")][:3]
-                self.log("The prebaked body models were made for another mod list (%s); baking them for yours "
-                         "instead" % ("; ".join(why) or "Umbra Effects Setup said no, exit %s" % code))
+                self.log("The prebaked body models don't fit this install (%s); baking them for your mod list and "
+                         "settings instead" % ("; ".join(why) or "Umbra Effects Setup said no, exit %s" % code))
                 return None
             vols = b["volumes"]
             left = [v for v in vols if not fetcher.have(v)]
