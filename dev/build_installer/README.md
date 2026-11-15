@@ -132,7 +132,7 @@ the version (cmd shows its prompt first, because it doesn't wait for window prog
 
 `build.sh` runs these after each build. Each prints a PASS or FAIL line.
 
-| Check | Linux | AppImage | Windows (Wine) |
+| Check | Linux | AppImage | Windows (Wine, and real Windows in GitHub Actions) |
 | --- | --- | --- | --- |
 | `glibc`: newest glibc symbol version in the bootloader and bundled libraries is at most 2.17 | yes | (same program) | |
 | `--version` says `Umbra Setup <VERSION of the staged sources>` | yes | yes | yes |
@@ -148,9 +148,46 @@ The plan check expects the plan to succeed, or, when Mod Organizer 2 is running 
 (Linux), to stop with exactly one problem: "Mod Organizer 2 is open". That is the installer doing its job.
 Under Wine, `tasklist` only sees programs in the build prefix, so there the plan always succeeds.
 
+On Windows itself (`os.name == "nt"`), `verify.py windows` runs the program directly instead of through
+Wine. GitHub Actions does that on a real Windows machine (see Releases below).
+
 Run by hand: `python3 dev/build_installer/verify.py linux dist/installer/umbra-setup-linux`. Keep it
 a file, not a script on stdin: the pack builder uses worker processes, and Python 3.14 starts them
 with forkserver, which imports the main script again.
+
+## Releases (GitHub Actions)
+
+`.github/workflows/build.yml` runs on every push to `main`, every pull request, every tag `v*`, and by
+hand (Actions, "Build", "Run workflow"):
+
+1. **Tests:** the unit tests and the secrets check (key patterns only: the list of private terms
+   lives on the maintainer's machine).
+2. **Build Setup:** `xvfb-run -a dev/build_installer/build.sh all` on Ubuntu 24.04, with Ubuntu's own
+   Wine (`wine32:i386` runs python.org's 32-bit installer bootstrapper) and `fuse3` for the AppImage
+   checks. Same script, same pins, same checks as on the maintainer's machine. The programs are kept
+   as the run's `umbra-setup` artifact for 14 days.
+3. **Check Setup on Windows:** `verify.py windows` on a real Windows (`windows-2025`), with no Wine.
+4. **Draft the GitHub release** (tags only): the three programs, named without spaces
+   (`Umbra-Setup.exe`, because GitHub turns spaces into dots), their `SHA256SUMS.txt`, and notes. The
+   release is a **draft**: nothing is public until the maintainer publishes it on the Releases page.
+   The run's summary says whether the stable channel at the built-in pack URL answers.
+
+The built-in pack URL comes from the repository variable `UMBRA_SOURCE` (Settings, Secrets and
+variables, Actions, Variables). Builds without it have no built-in URL, like local builds; a release
+refuses to build without it. Nothing in the workflow needs a secret: the pack is never built or
+uploaded there, and the release job writes with the run's own token.
+
+To release Setup version X.Y.Z:
+
+1. Set `VERSION = "X.Y.Z"` in `installer/umbra_installer/__init__.py` and commit.
+2. If the pack changed, build and upload it from the maintainer's machine first (`dev/pack_build.py`,
+   then `dev/b2_upload.py --dry-run`, then for real). The pack has its own version; Setup reads
+   whatever the channel points at.
+3. `git tag -a vX.Y.Z -m "Umbra Setup X.Y.Z"` and `git push origin main vX.Y.Z`. A tag that doesn't
+   match `VERSION` fails the run.
+4. When the run is green, read the draft on the Releases page and publish it.
+
+A failed run can be re-run; it replaces a draft's files but never a published release's.
 
 ## The cache
 

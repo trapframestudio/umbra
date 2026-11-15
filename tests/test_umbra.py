@@ -92,7 +92,10 @@ def read_bytes(path):
 
 
 def make_ini(mo2_dir, anomaly):
-    win = "Z:" + os.path.abspath(anomaly).replace("/", "\\\\")
+    # the folder as MO2 (a Windows program) writes it: Wine's Z: drive for a Linux path, with
+    # MO2's doubled backslashes
+    p = os.path.abspath(anomaly)
+    win = (p if os.name == "nt" else "Z:" + p).replace("/", "\\").replace("\\", "\\\\")
     write(os.path.join(mo2_dir, "ModOrganizer.ini"),
           "[General]\r\nselected_profile=@ByteArray(G.A.M.M.A)\r\ngamePath=@ByteArray(%s)\r\n[Settings]\r\nx=1\r\n"
           % win)

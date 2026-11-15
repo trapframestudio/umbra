@@ -9,7 +9,7 @@ Checks a built Umbra Setup program. build.sh runs it after each build; README.md
                                 (Setup finds the pack it sits in), and --version without FUSE
                                 (APPIMAGE_EXTRACT_AND_RUN=1, what players without FUSE use)
     verify.py windows EXE       --version, --selftest and the same --plan run under Wine
-                                ($WINE, else "wine"; $WINEPREFIX)
+                                ($WINE, else "wine"; $WINEPREFIX), or directly when this is Windows
     verify.py glibc PROGRAM     the newest glibc symbol version the Linux program and the libraries
                                 bundled in it need (run it with the build venv's Python: it reads the
                                 bundle with PyInstaller)
@@ -184,6 +184,14 @@ def main():
                             env=dict(os.environ, APPIMAGE_EXTRACT_AND_RUN="1"))
             check("--version without FUSE (APPIMAGE_EXTRACT_AND_RUN=1)", code == 0 and "Umbra Setup " in out,
                   out.strip().splitlines()[-1] if out.strip() else "exit %s" % code)
+    elif os.name == "nt":
+        # on Windows itself (the GitHub Actions check): the program runs as players run it
+        t_version([prog], a.expect_version)
+        t_selftest([prog])
+        open_now = mo2_open()
+        if open_now:
+            print("    (Mod Organizer 2 is open on this machine, so the plan must stop at that)")
+        t_plan([prog], lambda p: p, open_now)
     else:
         wine = os.environ.get("WINE") or shutil.which("wine") or "wine"
         env = dict(os.environ, WINEDEBUG=os.environ.get("WINEDEBUG", "-all"))

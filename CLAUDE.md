@@ -47,3 +47,6 @@ explains how it all works; read its sections before changing a part.
   ZGO folder that lost its bake ships ZGO without its body models (expect about 7.8 GB for
   the zgo layer).
 - Hosting: `dev/b2_upload.py` (`--dry-run` first).
+- Releases: GitHub Actions (`.github/workflows/build.yml`) builds and checks Setup on every push
+  and drafts a release for a `vX.Y.Z` tag matching `VERSION`. Pushing a tag and publishing the
+  draft are the maintainer's call. The pack is never built in Actions.

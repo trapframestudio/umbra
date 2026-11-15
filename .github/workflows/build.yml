@@ -1,0 +1,181 @@
+# Tests, then Umbra Setup for Linux and Windows, built by dev/build_installer/build.sh just as on
+# the maintainer's machine, and checked again on a real Windows. A tag vX.Y.Z (matching VERSION
+# in installer/umbra_installer/__init__.py) also makes a DRAFT GitHub release with the programs:
+# nothing is public until the maintainer publishes it. The pack itself is built and uploaded on
+# the maintainer's machine (it is made from a G.A.M.M.A. install). dev/build_installer/README.md
+# ("Releases") explains it all.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: python3 -m unittest -v tests/test_umbra.py tests/test_b2_upload.py
+      - name: Secrets check
+        # key patterns only here: the list of private terms lives on the maintainer's machine
+        run: git ls-files -z | xargs -0 python3 dev/check_secrets.py
+
+  installers:
+    name: Build Setup (Linux, and Windows under Wine)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # the pack's base URL, built into the programs (a repository variable; a release needs it)
+      UMBRA_SOURCE: ${{ vars.UMBRA_SOURCE }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          v="$(python3 -I -c 'import re, sys
+          print(re.search(r"^VERSION\s*=\s*[\x22\x27]([^\x22\x27]+)", open(sys.argv[1], encoding="utf-8").read(), re.M).group(1))' \
+            installer/umbra_installer/__init__.py)"
+          echo "Umbra Setup $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "v$v" ]; then
+              echo "::error::the tag $GITHUB_REF_NAME does not match VERSION $v in installer/umbra_installer/__init__.py"
+              exit 1
+            fi
+            if [ -z "$UMBRA_SOURCE" ]; then
+              echo "::error::a release needs the pack's base URL: set the repository variable UMBRA_SOURCE"
+              exit 1
+            fi
+          fi
+      - name: Build tools (Wine for the Windows build, Xvfb for the window checks, FUSE for the AppImage)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends wine wine64 wine32:i386 xvfb xauth fuse3
+          wine --version
+      - name: Download cache (every file is checked against its sha256 pin anyway)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/umbra-build/downloads
+            ~/.cache/umbra-build/pip
+            ~/.cache/umbra-build/pip-win
+          key: umbra-build-${{ hashFiles('dev/build_installer/build.sh', 'dev/build_installer/requirements.txt') }}
+      - name: Build and check
+        run: xvfb-run -a dev/build_installer/build.sh all
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: umbra-setup
+          path: dist/installer/
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Check Setup on Windows
+    needs: installers
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.installers.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: umbra-setup
+          path: dist/installer
+      - name: verify.py (--version, --selftest with its window, a --plan run against a throwaway pack)
+        run: python dev/build_installer/verify.py windows "dist/installer/Umbra Setup.exe" --expect-version "$env:VERSION"
+
+  release:
+    name: Draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [installers, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.installers.outputs.version }}
+      UMBRA_SOURCE: ${{ vars.UMBRA_SOURCE }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: umbra-setup
+          path: dist
+      - name: Release files
+        working-directory: dist
+        run: |
+          sha256sum -c SHA256SUMS.txt
+          # GitHub turns spaces in asset names into dots, so the release names have none
+          mv "Umbra Setup.exe" Umbra-Setup.exe
+          sha256sum Umbra-Setup-x86_64.AppImage Umbra-Setup.exe umbra-setup-linux > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          {
+            echo "Umbra Setup $VERSION installs Umbra: S.T.A.L.K.E.R. Anomaly with G.A.M.M.A., co-op through xrRazom, and Umbra's own mods on top."
+            echo
+            echo "| Download | For |"
+            echo "| --- | --- |"
+            echo "| \`Umbra-Setup.exe\` | Windows 8.1 and later (64-bit) |"
+            echo "| \`Umbra-Setup-x86_64.AppImage\` | Linux and Steam Deck: make it executable, then open it |"
+            echo "| \`umbra-setup-linux\` | the same Linux program without the AppImage wrapper |"
+            echo
+            echo "Checksums (\`SHA256SUMS.txt\`):"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+      - name: Draft release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::$TAG is already published; its files are not replaced"
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --draft --verify-tag --title "Umbra $VERSION" --notes-file notes.md
+          fi
+      - name: Is the pack there?
+        run: |
+          {
+            echo "## Draft release $TAG"
+            echo
+            echo "Nothing is public yet: review the draft on the Releases page, then publish it."
+            echo
+            if ch="$(curl -fsS --max-time 30 "$UMBRA_SOURCE/channels/stable.json")"; then
+              echo "The stable channel at the built-in pack URL answers: \`$ch\`"
+            else
+              echo "**The stable channel at the built-in pack URL does not answer.** Upload the pack (dev/b2_upload.py) before publishing, or Setup fails for everyone."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
