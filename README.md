@@ -417,5 +417,10 @@ These parts are not covered by it:
 - The wear on the weathered PNGs in `branding/` is painted from textures in the
   base game's archives (GSC Game World's S.T.A.L.K.E.R. assets; see
   `branding/README.md`). The SVGs and the clean PNGs are Umbra's own.
+- `installer/umbra_installer/assets/fonts/` holds the Tektur and Play
+  typefaces, under the SIL Open Font License 1.1 (`OFL-Tektur.txt` and
+  `OFL-Play.txt` beside them). The Tektur file is a narrow semibold instance
+  that `branding/fonts.py` makes from the variable font; the Play files are
+  unchanged.
 - The mods the pack installs keep their authors' own terms. `pack/credits.toml`
   lists each one with its licence where it states one.
