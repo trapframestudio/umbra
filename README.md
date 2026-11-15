@@ -395,3 +395,17 @@ their mod, in `CREDITS.md`, which the build generates from `pack/credits.toml`
 into `dist/`. The installer shows the same list and writes it to
 `UMBRA-CREDITS.txt`. If you add a mod, add its author to `pack/credits.toml`
 before you build.
+
+## Licence
+
+Umbra's own code, docs and branding are under the MIT licence (`LICENSE`).
+These parts are not covered by it:
+
+- `pack/gamma/` holds copies of G.A.M.M.A.'s mod lists from
+  [Grokitach/Stalker_GAMMA](https://github.com/Grokitach/Stalker_GAMMA), which
+  are under AGPL-3.0.
+- The wear on the weathered PNGs in `branding/` is painted from textures in the
+  base game's archives (GSC Game World's S.T.A.L.K.E.R. assets; see
+  `branding/README.md`). The SVGs and the clean PNGs are Umbra's own.
+- The mods the pack installs keep their authors' own terms. `pack/credits.toml`
+  lists each one with its licence where it states one.
