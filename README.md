@@ -59,7 +59,7 @@ The `umbra_installer` package:
 
 `pack/umbra.toml` describes one version of Umbra:
 
-- `[pack]`: name, version, and channel (`stable` or `testing`).
+- `[pack]`: name, version, and channel (`stable` or `testing`; `dev/pack_build.py --channel` overrides it).
 - `[hosting]`: the base URL the pack is published at. It is built into the
   installer.
 - `[source]`: the tested MO2 instance and profile the pack is built from.

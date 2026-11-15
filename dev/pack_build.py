@@ -1266,10 +1266,14 @@ def main():
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--fetch-sources", action="store_true", help="download the pinned sources and stop")
+    ap.add_argument("--channel", choices=("stable", "testing"),
+                    help="the channel this build is for (default: [pack] channel in the definition)")
     ap.add_argument("--bake-only", action="store_true",
                     help="build only Umbra Gore & Effects' prebaked bake into OUT/umbra-effects/ (no pack, no channel)")
     a = ap.parse_args()
     d = load_def(a.defn)
+    if a.channel:
+        d["pack"]["channel"] = a.channel
     if a.fetch_sources:
         fetch_sources(d)
         return 0
