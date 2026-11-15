@@ -2612,7 +2612,7 @@ class Runtime(unittest.TestCase):
 
 FAKE_ENTRY_POINT = """#!/bin/sh
 # the Steam Linux Runtime's _v2-entry-point, as far as the launcher sees it: note the call, run what follows --
-echo "$@" >> "$STEAM_COMPAT_DATA_PATH/entry.txt"
+printf '%s\\n' "$*" >> "$STEAM_COMPAT_DATA_PATH/entry.txt"    # not echo: dash's echo turns backslashes in Z: paths into control characters
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 exec "$@"
