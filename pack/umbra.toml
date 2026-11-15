@@ -1,0 +1,253 @@
+# Umbra pack definition. dev/pack_build.py reads this, packs every layer from
+# the source MO2 instance into content-addressed archives, and writes the
+# manifest the installer reads (see README.md, "How a pack is built").
+
+[pack]
+name = "Umbra"
+version = "0.1.0"
+channel = "stable"        # stable | testing
+
+[hosting]
+# Where the built pack is published (Backblaze B2, ideally behind Cloudflare so
+# downloads cost nothing). The installer is built with this address in it.
+# Empty until the bucket exists: the installer then needs --source.
+base_url = ""
+
+[source]
+# The instance the pack is built from (your tested setup).
+mo2 = "../../gamma"                 # relative to this file
+anomaly = "../../anomaly"
+profile = "G.A.M.M.A"
+
+# ------------------------------------------------------------------ G.A.M.M.A.
+# Installed by FaithBeam's stalker-gamma-cli, pinned: the CLI release (sha256
+# from GitHub's release page), the GAMMA git repos at the commits this pack was
+# tested with, and the GAMMA lists as they were installed.
+[gamma]
+cli_version = "1.41.1"
+mo2_profile = "G.A.M.M.A"
+modpack_maker_list = "gamma/modpack_maker_list.txt"
+modlist = "gamma/modlist.txt"
+
+[gamma.cli.linux-x64]
+url = "https://github.com/FaithBeam/stalker-gamma-cli/releases/download/1.41.1/stalker-gamma%2Blinux.x64.AppImage"
+sha256 = "f9288f1e2c1d59a59ee5b2ef21ccd8ed16b4558642483e8b1d5e36a64a19e979"
+
+[gamma.cli.win-x64]
+url = "https://github.com/FaithBeam/stalker-gamma-cli/releases/download/1.41.1/stalker-gamma%2Bwin.x64.zip"
+sha256 = "e7fb059f564bb08da6dab0db98e3cb0f4ec5e47265a79794b4cbd6483c90b84e"
+
+[gamma.repos]   # branch or commit, passed to `config create --<name>-repo-branch`
+stalker-gamma = "ab0f743af42a3b3b0b0ee853b3676f5189f7f0d0"
+gamma-setup = "cb58077bb9aca5c485702a63821b3381abc8722e"
+gamma-large-files = "908f620510858f3c00aa121db9c4ca2c0c8380b0"
+teivaz-anomaly-gunslinger = "d31ed61d91629329dec67c81706959ec8b2fd642"
+
+# ------------------------------------------------------------------ the Umbra profile
+# The installer makes an MO2 profile "Umbra" next to G.A.M.M.A. (which it never
+# changes): G.A.M.M.A.'s profile files, with the load order below. This is the
+# co-op profile (xrRazom); MO2 and the "Umbra" Steam shortcut open it.
+[profile]
+name = "Umbra"
+base = "G.A.M.M.A"
+# The load order: your tested profile's modlist.txt, snapshotted at build time,
+# with these changes. Entries for mods that a fresh install doesn't have are
+# dropped by MO2 by itself. Every profile starts from this same list.
+drop = [
+    "Zone Gore Overhaul 1.6.0 (standalone)",   # Umbra ships 1.7 as "Zone Gore Overhaul"
+]
+
+# ------------------------------------------------------------------ console settings
+# Lines for Anomaly's appdata/user.ltx, shared by every profile (MO2 keeps no
+# per-profile copy for Anomaly). Only a key the player's file lacks is added:
+# a setting the player has is never changed. Keep this to choices that suit
+# any machine; user.ltx is otherwise hardware-specific and is never packed.
+[user_ltx]
+lines = [
+    "r3_msaa st_opt_off",
+]
+
+# ------------------------------------------------------------------ options
+# A tick box (default = true/false), or pick one (choices + default = a
+# choice id; a layer says option = "<option>=<choice>"). The installer
+# remembers the picks: running Umbra Setup again keeps them unless changed.
+[[option]]
+id = "ccon-season"
+title = "Season for the grass and trees"
+description = "C Consciousness's look for the Zone's grass, bushes and trees. To change it later, pick another in the Umbra launcher; seasons you've had before stay in Mod Organizer 2 (switched off), so switching back needs no download."
+default = "autumn"
+choices = [
+    { id = "spring", title = "Spring" },
+    { id = "summer", title = "Summer" },
+    { id = "autumn", title = "Autumn" },
+    { id = "winter", title = "Dead (winter)" },
+]
+
+# ------------------------------------------------------------------ sources
+# Archives pinned by sha256. url: dev/pack_build.py --fetch-sources gets it;
+# without one, download it by hand from page. A 7z is unpacked once (only the
+# folders layers use) into ~/.cache/umbra-src/unpacked with 7-Zip.
+[sources.ccon]
+file = "~/Downloads/CCon_0.71_Fomod.7z"
+page = "https://www.moddb.com/mods/stalker-anomaly/addons/ccon-grass-n-trees"
+sha256 = "388533055e91e3168a764748249697aee62a9ba27aba248c50f6b3aaa76d0b48"
+version = "0.71"
+root = "CCon1.0Fomod"
+
+# xrRazom's author asks that it be downloaded from ModDB (so its downloads are
+# counted): Umbra never hosts it. Players' Setup downloads this exact file
+# there (or uses the copy in their Downloads folder); its layers say what they
+# take from it, as its fomod installs it for G.A.M.M.A.
+[sources.xrrazom]
+file = "~/Downloads/xrRazom-1.5-Slim.zip"
+page = "https://www.moddb.com/mods/xrrazom-stalker-anomaly-co-op/addons/xrrazom-stalker-anomaly-co-op-slim"
+download = "https://www.moddb.com/addons/start/314090"
+sha256 = "f57d8173d45c32dc9dd4808cde5b3c75e8af90e69b669c694ab879453804fb21"
+version = "1.5"
+site = "ModDB"
+players_download = true
+
+# ------------------------------------------------------------------ layers
+# Highest priority first (the top of modlist.txt, the bottom of MO2's left
+# pane). folder = the MO2 mod folder in the source instance. target "mods"
+# (default) installs into <MO2>/mods/<folder>; "anomaly" copies into the
+# Anomaly folder itself (from = a folder inside the source).
+# Other sources: files = {"path in the mod" = "file"}; archive = a zip, or
+# source = a [sources] id, with archive_root / archive_include, and
+# archive_member for an MO2 mod zipped inside it. without_files_of = layer
+# ids: leave out every file those layers have (a mod's shared part, minus
+# what each choice brings).
+# profile = only switched on in that profile (every profile lists every
+# layer; another profile's layers are switched off). preserve = true (or a
+# list of patterns): the player's edits to those files survive updates.
+# credit = the id in credits.toml.
+
+# xrRazom first: its fomod says to give it the highest priority (first = true
+# makes the build refuse any layer above it).
+[[layer]]
+id = "xrrazom"
+folder = "xrRazom Co-op"
+source = "xrrazom"
+first = true
+# its fomod: gamedata always, and gamma\gamedata for G.A.M.M.A. ("everyone in a
+# session must give the same answer": Umbra always answers G.A.M.M.A.)
+take = [["gamedata/", "gamedata/"], ["gamma/gamedata/", "gamedata/"]]
+credit = "xrrazom"
+
+# Your tuned MCM values, above everything else (xrRazom has no axr_options.ltx,
+# so MCM changes still land here). MO2 writes MCM changes back into
+# this file, so it is the player's after install: an update that ships new
+# values leaves an edited copy alone and puts Umbra's beside it
+# (axr_options.ltx.umbra-new).
+[[layer]]
+id = "settings"
+folder = "Umbra Settings"
+preserve = true
+credit = "gamma"
+[layer.files]
+"gamedata/configs/axr_options.ltx" = "../../gamma/mods/G.A.M.M.A. MCM values - Rename to keep your personal changes/gamedata/configs/axr_options.ltx"
+
+[[layer]]
+id = "zgo"
+folder = "Zone Gore Overhaul"
+from = "../../gamma/mods/Zone Gore Overhaul"   # the dev folder: packed like a release, plus the bake
+zgo = true                                      # pack with ZGO's own release rules (dev/package.py) + bake
+credit = "zgo"
+
+[[layer]]
+id = "glossy-puddles"
+folder = "Glossy Puddles"
+credit = "glossy-puddles"
+
+[[layer]]
+id = "fog"
+folder = "Man I Love Fog v"
+credit = "fog"
+
+[[layer]]
+id = "mhp-hands"
+folder = "M.H.P. [Hands pack]"
+credit = "mhp-hands"
+
+# C Consciousness: one mod per season (the mod's own installer picks one),
+# above the shared part. Every season brings the same 202 tree and grass
+# textures; Dead also brings its own versions of the shared dead-tree ones.
+[[layer]]
+id = "ccon-spring"
+option = "ccon-season=spring"
+folder = "CCon Season - Spring"
+source = "ccon"
+archive_root = "Seasons/Spring"
+credit = "ccon-grass"
+
+[[layer]]
+id = "ccon-summer"
+option = "ccon-season=summer"
+folder = "CCon Season - Summer"
+source = "ccon"
+archive_root = "Seasons/Summer"
+credit = "ccon-grass"
+
+[[layer]]
+id = "ccon-autumn"
+option = "ccon-season=autumn"
+folder = "CCon Season - Autumn"
+source = "ccon"
+archive_root = "Seasons/Autumn"
+credit = "ccon-grass"
+
+[[layer]]
+id = "ccon-winter"
+option = "ccon-season=winter"
+folder = "CCon Season - Dead (winter)"
+source = "ccon"
+archive_root = "Seasons/Dead"
+credit = "ccon-grass"
+
+# The shared part, as installed here (barks, red/dead trees, grass bump maps,
+# the Overgrown grass, and level.details for Limansk and the Hospital that the
+# archive doesn't have), minus the season textures (this install has Autumn's).
+[[layer]]
+id = "ccon-grass"
+folder = "C Consciousness Grass and Trees Overhaul – Seasons 0.71"
+without_files_of = ["ccon-autumn"]
+credit = "ccon-grass"
+
+[[layer]]
+id = "nitpicker"
+folder = "REPACK NITPICKER 1.2"
+credit = "nitpicker"
+
+[[layer]]
+id = "misery-like"
+folder = "Misery-like Vanilla v0.4"
+credit = "misery-like"
+
+[[layer]]
+id = "vehicle-textures"
+folder = "Vehicle_Textures_Redux_"
+credit = "vehicle-textures"
+
+[[layer]]
+id = "ixrtr"
+folder = "IXRTR"
+credit = "ixrtr"
+
+[[layer]]
+id = "atmospherics"
+folder = "Atmospherics 2.69 RC8"
+credit = "atmospherics"
+
+[[layer]]
+id = "safe-haven"
+folder = "Custom Base Safe Haven"
+credit = "safe-haven"
+
+# xrRazom's engine: the archive's Anomaly folder (bin AND gamedata) goes into the
+# game folder (the originals are backed up), as its fomod tells players to do.
+[[layer]]
+id = "xrrazom-engine"
+target = "anomaly"
+source = "xrrazom"
+take = [["Anomaly/", ""]]
+credit = "xrrazom"

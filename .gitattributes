@@ -1,0 +1,6 @@
+*.sh text eol=lf
+*.png binary
+*.ico binary
+*.dds binary
+*.zip binary
+*.7z binary

@@ -1,0 +1,9 @@
+# Build output: pack volumes and installers (tens of GB). Never in git.
+/dist/
+# Local secrets (B2 keys live in ~/.config/umbra, never here)
+*.env
+__pycache__/
+*.pyc
+.pytest_cache/
+*.part
+*.tmp
