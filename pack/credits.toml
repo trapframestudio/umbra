@@ -14,7 +14,7 @@
 #
 # Sources: each mod's own files (fomod info.xml and ModuleConfig.xml, readmes,
 # credits files, script headers, meta.ini url=), G.A.M.M.A.'s
-# modpack_maker_list.txt (pack/gamma/), Zone Gore Overhaul's CREDITS.txt and
+# modpack_maker_list.txt (pack/gamma/), Umbra Gore & Effects' CREDITS.txt and
 # bake report, and the mods' public pages.
 
 # ====================================================================== the base
@@ -70,12 +70,12 @@ notes = "The engine xrRazom is built on."
 
 [[credit]]
 id = "zgo"
-mod = "Zone Gore Overhaul"
-version = "1.7.0"
+mod = "Umbra Gore & Effects"
+version = "1.8.0"
 authors = ["the Umbra team"]
 url = ""
 role = "extra"
-notes = "Umbra's own blood, gore and dismemberment overhaul, built on Painter of the Zone and shipped with baked character models (see Models in Zone Gore Overhaul's bake). When they are installed it also uses meat meshes from TDLemon's New mutants icons parts and the visual tables of Wepl's Hit Effects, both part of G.A.M.M.A.; it does not ship them. No public page yet."
+notes = "Umbra's own blood, gore, dismemberment and effects overhaul (called Zone Gore Overhaul up to 1.7.1), built on Painter of the Zone and shipped with baked character models (see Models in Umbra Gore & Effects' bake). When they are installed it also uses meat meshes from TDLemon's New mutants icons parts and the visual tables of Wepl's Hit Effects, both part of G.A.M.M.A.; it does not ship them. No public page yet."
 
 [[credit]]
 id = "painter-of-the-zone"
@@ -84,7 +84,7 @@ authors = ["sunn"]
 url = "https://github.com/windelicato/painterofthezone"
 role = "extra"
 license = "Apache-2.0"
-notes = "Zone Gore Overhaul ships parts of it, changed files marked, with its licence in LICENSE-PainterOfTheZone.txt. Painter credits xcvb (bvcx on ModDB) for Long Range Blood Decals and Dismemberment, Death Orchird for HFX (HollywoodFX) particles, exDeMODER, 0scoar and Kaiser, and its blood decal shader comes from Ascii1457's Screen Space Shaders."
+notes = "Umbra Gore & Effects ships parts of it, changed files marked, with its licence in LICENSE-PainterOfTheZone.txt. Painter credits xcvb (bvcx on ModDB) for Long Range Blood Decals and Dismemberment, Death Orchird for HFX (HollywoodFX) particles, exDeMODER, 0scoar and Kaiser, and its blood decal shader comes from Ascii1457's Screen Space Shaders."
 
 [[credit]]
 id = "glossy-puddles"
@@ -216,7 +216,7 @@ url = "https://github.com/Grokitach/Stalker_GAMMA/tree/main/G.A.M.M.A/modpack_ad
 role = "gamma-optional"
 notes = "One of G.A.M.M.A.'s own optional addons."
 
-# ====================================================================== models in Zone Gore Overhaul's bake
+# ====================================================================== models in Umbra Gore & Effects' bake
 # One entry per mod the bake takes character models from (zgo_bake_report.json,
 # "src" of each result). The bake is made against Umbra's own mod list.
 

@@ -199,7 +199,7 @@ def credits_window(master, pack):
     else:
         roles = [("base", "The base"), ("engine", "Engine"), ("extra", "Mods in Umbra"),
                  ("gamma-optional", "G.A.M.M.A. options Umbra turns on"),
-                 ("baked-models", "Models in Zone Gore Overhaul's bake"), ("tool", "Tools")]
+                 ("baked-models", "Models in Umbra Gore & Effects' bake"), ("tool", "Tools")]
         cs = pack.get("credits", [])
         for role, title in roles:
             rows = [c for c in cs if (c.get("role") or "extra") == role]

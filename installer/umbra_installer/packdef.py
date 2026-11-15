@@ -31,7 +31,7 @@ page; 3 added options with choices):
                   {"id": "ccon-season", "title": "...", "description": "...", "default": "autumn",
                    "choices": [{"id": "spring", "title": "Spring"}, ...]}],   # pick exactly one
       "layers": [                        # highest priority first
-        {"id": "zgo", "folder": "Zone Gore Overhaul", "target": "mods" | "anomaly",
+        {"id": "zgo", "folder": "Umbra Gore & Effects", "target": "mods" | "anomaly",
          "version": "1.7.0", "files": 5853, "bytes": 7.1e9, "credit": "zgo",
          "relocate": ["zgo_bake_report.json", ...],   # files with @@UMBRA_*@@ tokens
          "option": "hd-characters",       # only installed when the player picks that option
@@ -94,7 +94,7 @@ machine's paths; layers.relocate() puts the player's in):
     @@UMBRA_MO2_WIN@@      the same as the game sees it (C:\\... or Z:\\home\\x\\... under Wine)
     @@UMBRA_ANOMALY@@      the Anomaly folder, native form
     @@UMBRA_ANOMALY_WIN@@  the same as the game sees it
-    @@UMBRA_ZGO_CACHE@@    Zone Gore Overhaul's baker work folder (its bake.py cache_dir)
+    @@UMBRA_ZGO_CACHE@@    Umbra Gore & Effects' baker work folder (its bake.py cache_dir)
 Each comes in a JSON/Lua-escaped variant with _ESC appended (backslashes doubled).
 """
 import fnmatch

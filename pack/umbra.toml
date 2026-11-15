@@ -54,7 +54,7 @@ base = "G.A.M.M.A"
 # with these changes. Entries for mods that a fresh install doesn't have are
 # dropped by MO2 by itself. Every profile starts from this same list.
 drop = [
-    "Zone Gore Overhaul 1.6.0 (standalone)",   # Umbra ships 1.7 as "Zone Gore Overhaul"
+    "Zone Gore Overhaul 1.6.0 (standalone)",   # an old fallback copy; Umbra ships "Umbra Gore & Effects"
 ]
 
 # ------------------------------------------------------------------ console settings
@@ -160,8 +160,9 @@ credit = "umbra"
 
 [[layer]]
 id = "zgo"
-folder = "Zone Gore Overhaul"
-from = "../../gamma/mods/Zone Gore Overhaul"   # the dev folder: packed like a release, plus the bake
+folder = "Umbra Gore & Effects"
+was = ["Zone Gore Overhaul"]                    # its name up to 1.7.1
+from = "../../gamma/mods/Umbra Gore & Effects"  # the deployed mod: packed like a release, plus the bake
 zgo = true                                      # pack with ZGO's own release rules (dev/package.py) + bake
 credit = "zgo"
 

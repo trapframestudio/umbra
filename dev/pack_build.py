@@ -69,7 +69,7 @@ TEXT_MAX = 64 << 20
 STORED_EXT = (".ogg", ".zip", ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gz", ".xz", ".exe", ".dll")
 EPOCH_1980 = 315532800
 
-# Zone Gore Overhaul's own release rules (its dev/package.py), but the bake stays:
+# Umbra Gore & Effects' own release rules (its dev/package.py), but the bake stays:
 # Umbra ships it baked for exactly this mod list.
 ZGO_SKIP_DIRS = {"dev", "tests", "docs", "native", ".git", "__pycache__"}
 ZGO_SKIP_TREES = ("tools/zgo_world_assets/", "tools/zgo_wounds/", "tools/zgo_fracture/assets/")
@@ -183,7 +183,7 @@ def parse_meta(text):
 
 
 def zgo_version(files):
-    """Zone Gore Overhaul's own version (VERSION in zgo_main.script), from a layer's file list."""
+    """Umbra Gore & Effects' own version (VERSION in zgo_main.script), from a layer's file list."""
     for rel, src, *_ in files:
         if rel == "gamedata/scripts/zgo_main.script":
             m = re.search(rb'^VERSION\s*=\s*"([^"]+)"', read_source(src), re.M)
@@ -487,7 +487,7 @@ def path_forms(path):
 
 
 def zgo_cache_dir():
-    """Zone Gore Overhaul's baker work folder on this machine (its bake.py cache_dir)."""
+    """Umbra Gore & Effects' baker work folder on this machine (its bake.py cache_dir)."""
     if os.environ.get("ZGO_BAKER_CACHE"):
         return os.path.abspath(os.environ["ZGO_BAKER_CACHE"])
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
@@ -1113,7 +1113,7 @@ class Builder:
 
 ROLE_TITLES = [("base", "The base"), ("engine", "Engine"), ("extra", "Mods in Umbra"),
                ("gamma-optional", "G.A.M.M.A. options Umbra turns on"),
-               ("baked-models", "Models in Zone Gore Overhaul's bake"), ("tool", "Tools")]
+               ("baked-models", "Models in Umbra Gore & Effects' bake"), ("tool", "Tools")]
 
 
 def credits_md(pack):

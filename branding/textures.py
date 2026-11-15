@@ -3,7 +3,7 @@ Game textures used as source material for the logo's wear.
 
 The textures come from the base game's texture archives (Anomaly, made from
 GSC's S.T.A.L.K.E.R. assets). They are extracted on first use into .cache/
-(not committed) with the .db reader from Zone Gore Overhaul's baker, then
+(not committed) with the .db reader from Umbra Gore & Effects' baker, then
 converted from DDS with ImageMagick.
 
 Paths can be overridden:
@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(HERE, ".cache", "textures")
 GAMMA = os.path.normpath(os.path.join(HERE, "..", ".."))
 GAME_DB = os.environ.get("UMBRA_GAME_DB", os.path.join(GAMMA, "anomaly", "db", "textures"))
-XDB = os.environ.get("UMBRA_XDB", os.path.join(GAMMA, "gamma", "mods", "Zone Gore Overhaul", "tools", "zgo_baker"))
+XDB = os.environ.get("UMBRA_XDB", os.path.join(GAMMA, "gamma", "mods", "Umbra Gore & Effects", "tools", "zgo_baker"))
 
 # name in the archive (under textures\) -> what we use it for
 SOURCES = {
