@@ -47,7 +47,10 @@ explains how it all works; read its sections before changing a part.
   ZGO bake is split out of the zgo layer into `umbra-effects/<fingerprint>/` (about 7.2 GB unpacked;
   the layer itself about 0.5 GB); a ZGO folder that lost its bake makes every player bake.
   `--bake-only` builds just the bake.
-- Hosting: `dev/b2_upload.py` (`--dry-run` first; `--bakes` publishes only the bakes).
+- Hosting: `dev/b2_upload.py` (`--dry-run` first; `--bakes` publishes only the bakes). Umbra's
+  pack goes under `--prefix umbra-modpack` in its bucket (README, "The output in `dist/`"), on
+  `--channel testing` until the maintainer promotes it. The bucket's name and address stay out
+  of this public repo until the first release (see `UMBRA_SOURCE`).
 - Releases: GitHub Actions (`.github/workflows/build.yml`) builds and checks Setup on every push
   and drafts a release for a `vX.Y.Z` tag matching `VERSION`. Pushing a tag and publishing the
   draft are the maintainer's call. The pack is never built in Actions.

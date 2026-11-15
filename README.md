@@ -152,6 +152,20 @@ CREDITS.md                   everyone whose work is in the pack
 `dev/b2_upload.py` publishes `dist/`. `dev/build_installer/build.sh` builds the
 installer programs into `dist/installer/`.
 
+Umbra's own pack lives in the `umbra-modpack/` folder of its bucket, so Setup's source is
+the bucket's download address followed by `/umbra-modpack`. Publishing only sends what the
+bucket doesn't have yet (every file is named by its sha256), so after a rebuild the same
+command uploads just the changed volumes and then switches the channel:
+
+```
+set -a; . ~/.config/umbra/b2-rw.env; set +a
+python3 dev/b2_upload.py --dry-run --prefix umbra-modpack --channel testing
+python3 dev/b2_upload.py --bucket BUCKET --prefix umbra-modpack --channel testing --yes \
+    --base-url-check BASE/umbra-modpack
+```
+
+`--channel testing` until a pack is promoted; `stable` stays unpublished until then.
+
 ## How a pack is hosted
 
 Everything lives under one base URL (a Backblaze B2 bucket, ideally behind
