@@ -42,6 +42,15 @@ RUNTIME_KIND = "windows" if os.name == "nt" else "prefix"      # runtime.py
 LAUNCHER = "Umbra Launcher.exe" if os.name == "nt" else "umbra-launcher"
 
 
+def took(secs):
+    """How long something took, for the log: "8 seconds", "1 minute", "12 minutes"."""
+    if secs < 59.5:
+        n, unit = max(1, int(round(secs))), "second"
+    else:
+        n, unit = int(round(secs / 60)), "minute"
+    return "%d %s%s" % (n, unit, "" if n == 1 else "s")
+
+
 def cpu_has(flag):
     """Does the CPU have "avx" / "avx2"? True/False, or None when it can't be told."""
     try:
@@ -389,9 +398,8 @@ class Installer:
                 m = layers.anomaly_marker(P["anomaly"], L["id"]) if P.get("anomaly") else None
                 name = L.get("folder") or L["id"]
             elif mods_dir:
-                name = layers.choose_folder(mods_dir, L)
-                m = layers.read_marker(os.path.join(mods_dir, name))
-                m = m if m and m.get("id") == L["id"] else None
+                _, m = layers.installed(mods_dir, L, packdef.other_ids(pack, L))
+                name = layers.choose_folder(mods_dir, L)         # its name after the update
             else:
                 continue
             if m and m.get("volumes") != layers.volume_keys(L):
@@ -408,8 +416,8 @@ class Installer:
                 if m and m.get("volumes") == layers.volume_keys(L):
                     continue
             else:
-                folder = os.path.join(mods_dir, layers.choose_folder(mods_dir, L))
-                if os.path.isdir(folder) and layers.marker_ok(folder, L):
+                _, m = layers.installed(mods_dir, L, packdef.other_ids(pack, L))
+                if m and m.get("volumes") == layers.volume_keys(L):
                     continue
             n += L.get("bytes", 0)
         return n
@@ -491,6 +499,7 @@ class Installer:
         # ---- layers
         toks = layers.tokens(P["mo2"], P["anomaly"], zgo_cache_dir(), under_wine=(os.name != "nt"))
         mods_dir = os.path.join(P["mo2"], "mods")
+        self._renamed(pack, P, mods_dir)
         renames, folders = {}, {}
         total = sum(L.get("bytes", 0) for L in chosen) or 1
         done = 0
@@ -588,9 +597,28 @@ class Installer:
                       "installed": time.strftime("%Y-%m-%d %H:%M:%S"), "installer": VERSION})
         self._save_state(P, state)
         self._write_credits(P, pack)
-        mins = max(1, round((time.time() - t0) / 60))
-        self.log("Done in %d minute%s." % (mins, "" if mins == 1 else "s"))
+        self.log("Done in %s." % took(time.time() - t0))
         return state
+
+    def _renamed(self, pack, P, mods_dir):
+        """Mods the pack has renamed (a layer's "was"): an earlier Umbra's folder takes the new
+        name, and every profile lists it under that name."""
+        moved = {}
+        for L in pack["layers"]:
+            if L.get("target", "mods") != "mods" or not L.get("was"):
+                continue
+            try:
+                got = layers.adopt_renamed(mods_dir, L, packdef.other_ids(pack, L))
+            except OSError as e:
+                self.log('Could not rename "%s" to "%s" (%s); it is installed again under the new name, '
+                         'and the old folder can be deleted in Mod Organizer 2'
+                         % (layers.renamed_folder(mods_dir, L) or L["was"][0], L["folder"], e), "warn")
+                continue
+            if got:
+                moved[got[0]] = got[1]
+                self.log('Renamed "%s" to "%s"' % got)
+        if moved:
+            mo2.rename_mods(P["mo2"], moved)
 
     # ------------------------------------------------------------ steps
     def _gamma(self, pack, P, fetcher):
@@ -659,7 +687,8 @@ class Installer:
             runtime.windows_install(cache, P["anomaly"], self.log, prog, self.cancelled)
         else:
             runtime.prepare(cache, "prefix", self.log, prog, self.cancelled)
-            self.log("The Umbra launcher puts them into Proton's prefix the first time it starts the game.")
+            self.log("Before the game starts, the Umbra launcher checks Proton's prefix for Microsoft's "
+                     "Visual C++ runtime and DirectX files and adds any that are missing.")
         self.progress("runtime", 1.0, "done")
 
     def _profile_warnings(self, pack, choices):

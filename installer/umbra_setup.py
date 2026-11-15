@@ -248,6 +248,18 @@ def selftest(a):
         return "logo and icon" if not missing else "not bundled (source run)"
     step("assets", t_assets)
 
+    def t_fonts():
+        from umbra_installer import ttf, typeface
+        d = typeface.font_dir()
+        if not d:
+            raise RuntimeError("the fonts are not bundled (assets/fonts)")
+        for fn in sorted(set(typeface.FILES.values())):
+            w, h, cov = ttf.render(ttf.Font(os.path.join(d, fn)), "Umbra Тінь", 20)
+            if not any(cov):
+                raise RuntimeError("%s draws nothing" % fn)
+        return "Tektur Narrow and Play read and drawn"
+    step("fonts", t_fonts)
+
     def t_window():
         try:
             import tkinter as tk

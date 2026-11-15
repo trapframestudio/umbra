@@ -30,6 +30,13 @@ for need in ("umbra-logo-1280.png", "umbra-icon-256.png"):
     if need not in pngs:
         raise SystemExit("missing %s in %s" % (need, ASSETS))
 datas = [(os.path.join(ASSETS, fn), "assets") for fn in pngs]
+# Umbra's typefaces and their licences (typeface.font_dir() looks in sys._MEIPASS/assets/fonts).
+FONTS = os.path.join(ASSETS, "fonts")
+fonts = sorted(fn for fn in os.listdir(FONTS) if fn.lower().endswith((".ttf", ".txt")))
+for need in ("TekturNarrow-SemiBold.ttf", "Play-Regular.ttf", "Play-Bold.ttf", "OFL-Tektur.txt", "OFL-Play.txt"):
+    if need not in fonts:
+        raise SystemExit("missing %s in %s (branding/fonts.py makes them)" % (need, FONTS))
+datas += [(os.path.join(FONTS, fn), os.path.join("assets", "fonts")) for fn in fonts]
 
 # Linux: the empty libXcursor.so.1 stand-in (nocursor.c says why). build.sh compiles it and
 # passes its path. umbra_setup.no_xcursor() loads it from sys._MEIPASS before Tk starts.

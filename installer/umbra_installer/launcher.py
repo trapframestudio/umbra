@@ -204,8 +204,8 @@ class Install:
                 if m and m.get("volumes") == layers.volume_keys(L):
                     continue
             else:
-                folder = os.path.join(mods_dir, layers.choose_folder(mods_dir, L))
-                if os.path.isdir(folder) and layers.marker_ok(folder, L):
+                _, m = layers.installed(mods_dir, L, packdef.other_ids(self.pack, L))
+                if m and m.get("volumes") == layers.volume_keys(L):
                     continue
             pending.append(L)
         return sum(v["size"] for v in packdef.unique_volumes(pending)

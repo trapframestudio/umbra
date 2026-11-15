@@ -12,10 +12,10 @@ Override the locations with `UMBRA_GAME_DB` and `UMBRA_XDB` (see `textures.py`).
 
 ## The look
 
-Late-Soviet propaganda lettering, printed in the Zone's faded colours.
+Worn enamel block lettering in the Zone's faded colours, like old signage on rusting steel.
 
-- **Logo:** **UMBRA** in heavy, condensed block letters drawn by hand (no font), with an offset rust print shadow, over a rust bar carrying the name in Cyrillic, **УМБРА**.
-- **Icon:** the U from the logo, with its shadow, over a rust bar on a soot tile.
+- **Logo:** **UMBRA** in heavy, condensed block letters drawn by hand (no font), with an offset burnt-umber print shadow, over an umber bar carrying **ТІНЬ**, Ukrainian for "shadow" (what *umbra* means, and the word in *Тінь Чорнобиля*, Shadow of Chernobyl's Ukrainian title).
+- **Icon:** the U from the logo, with its shadow, over an umber bar on a soot tile.
 - **Wear:** the weathered PNGs look like old enamel paint on rusting steel, built from the base game's own textures instead of noise (`weather.py`):
   - The shapes where paint is gone come from real peeling-paint textures: pale paint flaking off concrete (`crete_stena_kraska_02`) and red paint peeling off a barrel (`mtl_bochka_03_r`).
   - Where paint is gone, real rust shows (`mtl_rusted_01`, `mtl_rust_dark`).
@@ -23,7 +23,9 @@ Late-Soviet propaganda lettering, printed in the Zone's faded colours.
   - Paint fails at the edges first, and some areas are worse than others.
   - Each layer's `wear` value in `build.py` is the share of that shape where paint is gone.
   - The SVGs and the small icon sizes stay clean.
-- **No hammer and sickle or red star:** they are banned in Ukraine, and STALKER's developers and much of its community are Ukrainian.
+- **Ukrainian, never Russian or Soviet:** STALKER's developers and much of its community are Ukrainian.
+  - Cyrillic is Ukrainian and spelled so it can't pass for Russian: the **І** in ТІНЬ isn't in the Russian alphabet (Russian would write ТЕНЬ). The earlier УМБРА was spelled the same in both languages.
+  - No propaganda red (the logo used `#84301f` until 2026-11-14), and no hammer and sickle or red star (banned in Ukraine).
 
 Earlier attempts are kept in `archive/`: v1, a minimal eclipse, and v2, a pin badge.
 
@@ -32,25 +34,46 @@ Earlier attempts are kept in `archive/`: v1, a minimal eclipse, and v2, a pin ba
 | Name | Hex | Use |
 |---|---|---|
 | Bone | `#d9cca6` | lettering on dark grounds |
-| Rust | `#84301f` | print shadow, bar, icon bar |
+| Umber | `#5e4532` | print shadow, bar, icon bar; Setup's and the launcher's buttons |
 | Paper | `#cdbf99` | Cyrillic on the bar; light ground |
 | Soot | `#14130f` | backgrounds; lettering on light grounds |
 
-`build.py` still defines the badge-era colours (ochre, olive, umber and so on)
+`build.py` still defines the badge-era colours (ochre, olive and so on)
 for anything we make later, such as Steam artwork.
 
 ## Files
 
 | File | For |
 |---|---|
-| `png/umbra-logo-2400.png`, `-1280.png` | the logo, weathered; Steam library logo, launcher splash, ModDB/GitHub headers |
+| `png/umbra-logo-2400.png`, `-1280.png`, `-520.png` | the logo, weathered; Steam library logo, launcher and Setup header, ModDB/GitHub headers, Umbra's loading screen and main menu (`look/splash.py`) |
 | `png/umbra-logo-light-ground-1280.png` | the logo on paper or light backgrounds (soot letters), weathered |
 | `png/umbra-name-1600.png` | UMBRA alone, for tight horizontal spaces, weathered |
 | `png/umbra-icon-512.png`, `-256.png` | app and shortcut icon, weathered |
 | `png/umbra-icon-64.png`, `-32.png`, `png/umbra-logo-clean-1280.png` | clean versions for small sizes |
-| `png/umbra-play-104.png` | PLAY in the logo's lettering, clean, for the launcher's Play button (copied to `installer/umbra_installer/assets/`) |
+| `png/umbra-play-104.png` | PLAY in the logo's lettering, clean, for the launcher's Play button |
 | `svg/*.svg` | clean vector versions of all four |
 | `png/preview.png` | everything on one sheet |
+
+`--png` also copies what Setup and the launcher show (`ASSETS` in `build.py`)
+into `installer/umbra_installer/assets/`. After a logo change, rebuild the
+splashes too: `python3 ../look/splash.py loading menu`.
+
+## Typefaces
+
+Setup and the launcher are set in the typefaces of the game's UI (`look/fonts.py`):
+Tektur Narrow for headings and buttons, Play for text. `fonts.py` makes the files
+they ship, in `installer/umbra_installer/assets/fonts/`:
+
+    ~/.cache/umbra-look/venv/bin/python -I fonts.py SOURCE_DIR
+
+`SOURCE_DIR` holds the Google Fonts files (`tektur/`, `play/`), checked against the
+sha256 pins in `fonts.py`. Tektur's variable font becomes one static face,
+"Tektur Narrow SemiBold" (width 80, weight 600: Tk can't pick a variable font's axes).
+Tektur's licence reserves no name, so the changed face may keep it. Play ships as
+published, since its licence reserves the name. Both licences (`OFL-*.txt`) ship next
+to the fonts. The program reads the files with its own renderer
+(`installer/umbra_installer/ttf.py`); fontTools (`pip install fonttools` in that venv)
+is only needed here.
 
 ## Credits
 

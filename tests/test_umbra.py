@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "dev"))
 
 import pack_build  # noqa: E402
 from umbra_installer import shortcuts as menus  # noqa: E402 (the module; shortcuts() below reads Steam's)
-from umbra_installer import cab, fetch, gammacli, install, launcher, layers, mo2, packdef, runtime, steam, userltx  # noqa: E402,E501
+from umbra_installer import cab, fetch, gammacli, install, launcher, layers, mo2, packdef, runtime, steam, ttf, userltx  # noqa: E402,E501
 
 REAL_DOWNLOADS = copy.deepcopy(runtime.DOWNLOADS)       # the tests use small stand-ins (setUpModule)
 
@@ -1435,6 +1435,10 @@ class Steam(unittest.TestCase):
 
 
 class LauncherBits(unittest.TestCase):
+    def test_how_long_setup_took(self):
+        self.assertEqual([install.took(s) for s in (0.2, 8, 59.4, 59.6, 90, 720)],
+                         ["1 second", "8 seconds", "59 seconds", "1 minute", "2 minutes", "12 minutes"])
+
     def test_split_argv(self):
         self.assertEqual(launcher.split_argv(["--launcher"]), (["--launcher"], None))
         self.assertEqual(launcher.split_argv(["--", "/p/proton", "run", "--", "x"]), ([], ["/p/proton", "run", "--", "x"]))
@@ -1846,6 +1850,95 @@ class Profiles(unittest.TestCase):
         self.assertEqual(plan(os.path.join(d, "dist2")).changed, [])
         self.assertEqual([launcher.names(x) for x in (["A"], ["A", "B"], ["A", "B", "C"], list("ABCDE"))],
                          ["A", "A and B", "A, B and C", "A, B, C and 2 more"])
+
+    def test_renamed_mods_are_renamed_in_place(self):
+        """A pack that renames mod folders (layer "was"): an install of the old pack gets them
+        renamed, in place and in every profile, instead of a second copy. A same-content one
+        isn't unpacked again; one whose id changed too (the settings mod becoming the Umbra mod,
+        a folder plus single files) is updated in place, the player's MCM edits kept."""
+        d = tempfile.mkdtemp(prefix="umbra_test_", dir=self.d)
+        toml = make_profiles_source(d)
+        pack1 = build(toml, os.path.join(d, "dist1"))
+        t, _ = self.target("renamed")
+        self.install(t, set(), source=os.path.join(d, "dist1"))
+        mods = os.path.join(t, "mods")
+        mine = SETTINGS_V1.replace("blood = 2", "blood = 0")                  # the player's MCM edit
+        write(os.path.join(mods, "Umbra Settings", "gamedata", "configs", "axr_options.ltx"), mine)
+        gamma_ml = os.path.join(t, "profiles", "G.A.M.M.A", "modlist.txt")
+        write(gamma_ml, b"+GAMMA base\r\n-Umbra Settings\r\n")              # MO2 added it there, off
+        solo_ml = os.path.join(t, "profiles", "Umbra Solo", "modlist.txt")    # an Umbra profile whose
+        write(solo_ml, b"+Visual Mod\r\n+Umbra Settings\r\n")              # option is off now
+        write(os.path.join(t, "profiles", "Umbra Solo", mo2.PROFILE_MARKER), "")
+        umbra_ml = os.path.join(t, "profiles", "Umbra", "modlist.txt")
+        with open(umbra_ml, encoding="utf-8") as f:
+            before = f.read().splitlines()
+        # pack 0.0.2: "Visual Mod" -> "Visual Mod 2.0" (same files); the settings mod -> "Umbra",
+        # with a folder of its own (the look) and the settings file on top of it
+        write(os.path.join(d, "look", "gamedata", "textures", "umbra", "ui.dds"), b"umbra ui")
+        write(os.path.join(d, "look", "gamedata", "configs", "axr_options.ltx"), b"not this one")
+        with open(toml, encoding="utf-8") as f:
+            text = f.read()
+        for old, new in (
+                ('version = "0.0.1"', 'version = "0.0.2"'),
+                ('id = "visual"\nfolder = "Visual Mod"\n',
+                 'id = "visual"\nfolder = "Visual Mod 2.0"\nfrom = "../src/gamma/mods/Visual Mod"\n'
+                 'was = ["Visual Mod"]\n'),
+                ('id = "settings"\nfolder = "Umbra Settings"\npreserve = true\n',
+                 'id = "umbra"\nfolder = "Umbra"\nwas = ["Umbra Settings"]\nfrom = "../look"\n'
+                 'preserve = ["gamedata/configs/axr_options.ltx"]\n')):
+            self.assertIn(old, text)
+            text = text.replace(old, new)
+        with open(toml, "w", encoding="utf-8") as f:
+            f.write(text)
+        pack2 = build(toml, os.path.join(d, "dist2"))
+        self.assertEqual(layer_by_id(pack2, "visual")["was"], ["Visual Mod"])
+        self.assertEqual(layer_by_id(pack2, "visual")["volumes"], layer_by_id(pack1, "visual")["volumes"])
+        names = volume_names(os.path.join(d, "dist2"), layer_by_id(pack2, "umbra"))
+        self.assertIn("gamedata/textures/umbra/ui.dds", names)
+        self.assertEqual(names["gamedata/configs/axr_options.ltx"], SETTINGS_V1.encode())    # files win
+        with open(os.path.join(d, "dist2", *pack2["profile"]["modlist"]["path"].split("/")), encoding="utf-8") as f:
+            ml = f.read().splitlines()
+        self.assertIn("+Visual Mod 2.0", ml)
+        self.assertNotIn("+Visual Mod", ml)                                  # the source's own line is replaced
+        # the plan: the Umbra mod changes, the renamed one is in place already
+        p = install.Installer(install.Options(mode="existing", mo2_dir=t, source=os.path.join(d, "dist2"),
+                                              steam=False, choices=set())).plan()
+        self.assertEqual(p.changed, ["Umbra"])
+        _, logs = self.install(t, set(), source=os.path.join(d, "dist2"))
+        msgs = [m for _, m in logs]
+        self.assertIn('Renamed "Visual Mod" to "Visual Mod 2.0"', msgs)
+        self.assertIn('Renamed "Umbra Settings" to "Umbra"', msgs)
+        self.assertIn("Already in place: Visual Mod 2.0", msgs)
+        self.assertIn("Installed Umbra", msgs)
+        self.assertFalse(os.path.exists(os.path.join(mods, "Visual Mod")))
+        self.assertFalse(os.path.exists(os.path.join(mods, "Umbra Settings")))
+        self.assertEqual(layers.read_marker(os.path.join(mods, "Umbra"))["id"], "umbra")
+        self.assertTrue(os.path.exists(os.path.join(mods, "Visual Mod 2.0", "gamedata", "textures", "b.dds")))
+        with open(os.path.join(mods, "Umbra", "gamedata", "textures", "umbra", "ui.dds"), "rb") as f:
+            self.assertEqual(f.read(), b"umbra ui")
+        rel = os.path.join(mods, "Umbra", "gamedata", "configs", "axr_options.ltx")
+        with open(rel, newline="") as f:
+            self.assertEqual(f.read(), mine)                                 # the player's settings kept
+        self.assertFalse(os.path.exists(rel + ".umbra-new"))                # Umbra's are unchanged:
+        self.assertFalse(any("Kept your changed" in m for m in msgs))        # nothing beside it, no warning
+        # Umbra's profiles: the new names, where the old ones were, on or off as they were
+        with open(umbra_ml, encoding="utf-8") as f:
+            after = f.read().splitlines()
+        swap = {"+Umbra Settings": "+Umbra", "+Visual Mod": "+Visual Mod 2.0"}
+        self.assertEqual(after, [swap.get(x, x) for x in before])
+        with open(solo_ml, "rb") as f:
+            self.assertEqual(f.read(), b"+Visual Mod 2.0\r\n+Umbra\r\n")
+        with open(gamma_ml, "rb") as f:
+            self.assertEqual(f.read(), b"+GAMMA base\r\n-Umbra Settings\r\n")    # G.A.M.M.A.'s: never
+        # once more: nothing left to rename or unpack
+        _, logs = self.install(t, set(), source=os.path.join(d, "dist2"))
+        self.assertFalse(any(m.startswith(("Renamed", "Installed ")) for _, m in logs))
+
+    def test_was_must_not_name_another_layers_folder(self):
+        pack = copy.deepcopy(self.pack)
+        layer_by_id(pack, "atmos")["was"] = ["Coop Mod"]
+        with self.assertRaises(packdef.PackError):
+            packdef.check_pack(pack)
 
 class Preserve(unittest.TestCase):
     """The preserve rule is per file pattern and works for Anomaly-folder layers too."""
@@ -2745,6 +2838,102 @@ class Shortcuts(unittest.TestCase):
             self.assertEqual(menus.xdg_user_dir("DESKTOP", "Desktop"), os.path.join(home, "Schreibtisch"))
             write(os.path.join(home, ".config", "user-dirs.dirs"), b'XDG_DESKTOP_DIR="$HOME/"\n')
             self.assertIsNone(menus.xdg_user_dir("DESKTOP", "Desktop"))        # the desktop is home: none
+
+
+
+class Typefaces(unittest.TestCase):
+    """Setup's own TrueType renderer (ttf.py) and the font files it ships. typeface.py, the Tk
+    side, needs tkinter: the program's self-test (umbra-setup --selftest) runs it."""
+    FONTS = os.path.join(ROOT, "installer", "umbra_installer", "assets", "fonts")
+    FILES = ("TekturNarrow-SemiBold.ttf", "Play-Regular.ttf", "Play-Bold.ttf")
+
+    def font(self, fn="Play-Regular.ttf"):
+        return ttf.Font(os.path.join(self.FONTS, fn))
+
+    @staticmethod
+    def ink(cov):
+        return sum(cov)
+
+    def test_the_fonts_ship_with_their_licences(self):
+        have = set(os.listdir(self.FONTS))
+        for fn in self.FILES + ("OFL-Tektur.txt", "OFL-Play.txt"):
+            self.assertIn(fn, have)
+        for fn in ("OFL-Tektur.txt", "OFL-Play.txt"):
+            with open(os.path.join(self.FONTS, fn), encoding="utf-8") as f:
+                self.assertIn("SIL OPEN FONT LICENSE", f.read().upper())
+        # the typeface module's file table names exactly these (read as text: it imports tkinter)
+        with open(os.path.join(ROOT, "installer", "umbra_installer", "typeface.py"), encoding="utf-8") as f:
+            named = set(re.findall(r'"([\w-]+\.ttf)"', f.read()))
+        self.assertEqual(named, set(self.FILES))
+
+    def test_every_font_has_the_letters_umbra_writes(self):
+        for fn in self.FILES:
+            f = self.font(fn)
+            for ch in "AZaz09.,:()/+-" + "ҐґЄєІіЇї" + "₴" + "ÄÉÑ":
+                self.assertTrue(f.glyph_id(ch), "%s has no %r" % (fn, ch))
+            self.assertEqual(f.glyph_id("\uE000"), 0)          # a private-use character: .notdef
+
+    def test_text_is_drawn(self):
+        f = self.font()
+        w, h, cov = ttf.render(f, "Umbra", 20)
+        self.assertEqual(len(cov), w * h)
+        self.assertEqual(h, f.line_height(20))
+        self.assertGreater(self.ink(cov), 255 * 20)
+        self.assertEqual(max(cov), 255)                           # solid stems
+        # nothing above the ascent or below the descent rows of an x-height word
+        w2, h2, cov2 = ttf.render(f, "un", 20)
+        top = f.baseline(20) - 14
+        self.assertEqual(sum(cov2[:top * w2]), 0)
+        # bigger is wider and inkier; empty draws nothing
+        w3, h3, cov3 = ttf.render(f, "Umbra", 40)
+        self.assertGreater(w3, 1.8 * w)
+        self.assertGreater(self.ink(cov3), 3 * self.ink(cov))
+        self.assertEqual(self.ink(ttf.render(f, "", 20)[2]), 0)
+        self.assertEqual(self.ink(ttf.render(f, "   ", 20)[2]), 0)
+
+    def test_composite_glyphs_are_drawn_whole(self):
+        f = self.font("TekturNarrow-SemiBold.ttf")
+        a, a_uml = f.outline(f.glyph_id("A")), f.outline(f.glyph_id("Ä"))
+        self.assertGreater(len(a_uml), len(a))                   # the A and the dots
+        ink_a = self.ink(ttf.render(f, "A", 30)[2])
+        ink_u = self.ink(ttf.render(f, "Ä", 30)[2])
+        self.assertGreater(ink_u, ink_a * 1.05)
+        self.assertLess(ink_u, ink_a * 1.6)
+
+    def test_wrapping(self):
+        f = self.font()
+        text = "G.A.M.M.A. itself is downloaded from its sources by stalker-gamma-cli"
+        one = ttf.wrap(f, text, 14, None)
+        self.assertEqual(one, [text])
+        lines = ttf.wrap(f, text, 14, 200)
+        self.assertGreater(len(lines), 1)
+        self.assertEqual(" ".join(lines), text)
+        for line in lines:
+            self.assertLessEqual(f.width(line, 14), 200)
+        self.assertEqual(ttf.wrap(f, "a\nb", 14, 200), ["a", "b"])
+        long = "x" * 80                                           # a word wider than the line: alone
+        self.assertEqual(ttf.wrap(f, "a " + long + " b", 14, 100), ["a", long, "b"])
+        w, h, _ = ttf.render(f, text, 14, width=200)
+        self.assertLessEqual(w, 202)
+        self.assertEqual(h, len(lines) * f.line_height(14))
+
+    def test_centred_and_right_aligned_lines(self):
+        f = self.font()
+        for justify in ("left", "center", "right"):
+            w, h, cov = ttf.render(f, "wide line here\ni", 16, justify=justify)
+            row = f.line_height(16)
+            cols = [x for x in range(w) for y in range(row, h) if cov[y * w + x]]
+            mid = (min(cols) + max(cols)) / 2.0
+            want = {"left": w * 0.1, "center": w / 2.0, "right": w * 0.9}[justify]
+            self.assertLess(abs(mid - want), w * 0.15, justify)
+
+    def test_not_a_font(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.ttf")
+            with open(p, "wb") as f:
+                f.write(b"\0\1\0\0" + b"\0" * 40)
+            with self.assertRaises(ttf.FontError):
+                ttf.Font(p)
 
 
 if __name__ == "__main__":

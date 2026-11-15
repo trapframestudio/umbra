@@ -320,6 +320,30 @@ def make_profile(mo2, name, base, modlist, renames=None, off=(), drop=()):
     return pdir
 
 
+def rename_mods(mo2, renamed):
+    """A mod folder got a new name ({old: new}): Umbra's profiles list it under that name, in
+    the same place, on or off as it was. Other profiles (G.A.M.M.A.'s) are never changed; MO2
+    lists the new name there as it does any new mod. MO2 must be closed (it rewrites
+    modlist.txt when it closes)."""
+    for name in profiles(mo2):
+        if not os.path.exists(os.path.join(mo2, "profiles", name, PROFILE_MARKER)):
+            continue
+        path = os.path.join(mo2, "profiles", name, "modlist.txt")
+        with open(path, "rb") as f:
+            data = f.read()
+        lines = data.decode("utf-8").splitlines(keepends=True)
+        changed = False
+        for i, line in enumerate(lines):
+            body = line.rstrip("\r\n")
+            if body[:1] in ("+", "-") and body[1:] in renamed:
+                lines[i] = body[0] + renamed[body[1:]] + line[len(body):]
+                changed = True
+        if changed:
+            with open(path + ".tmp", "wb") as f:
+                f.write("".join(lines).encode("utf-8"))
+            os.replace(path + ".tmp", path)
+
+
 def running():
     """Is Mod Organizer 2 open? (It rewrites its files on exit.)"""
     try:

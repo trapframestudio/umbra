@@ -360,3 +360,29 @@ url = "https://github.com/ModOrganizer2/modorganizer"
 role = "tool"
 license = "GPL-3.0"
 notes = "G.A.M.M.A. and Umbra are managed and started through it."
+
+[[credit]]
+id = "umbra"
+mod = "Umbra"
+authors = ["the Umbra team"]
+url = ""
+role = "extra"
+notes = "Umbra's own mod. Its MCM values are G.A.M.M.A.'s, as tested for Umbra. Its look (splashes, fonts, UI repaint) is painted with textures from S.T.A.L.K.E.R. Anomaly's base game (GSC Game World's assets) and changes only what it repaints, on top of G.A.M.M.A.'s UI. The menu's placeholder loop is CS Eden's Dead City picture from G.A.M.M.A.'s loading screens addon; its version line and hryvnia lines change single strings of G.A.M.M.A.'s text (G.A.M.M.A. Massive Text Overhaul Project, SageDaHerb and Dr.Pr1nkos). The UI fonts are drawn from the Tektur and Play typefaces (credited below), with their licences in the mod's licenses folder."
+
+[[credit]]
+id = "font-tektur"
+mod = "Tektur"
+authors = ["Adam Jagosz", "The Tektur Project Authors"]
+url = "https://github.com/hyvyys/Tektur"
+role = "extra"
+license = "OFL-1.1"
+notes = "Typeface for Umbra's UI headings and menu buttons, drawn into the game's bitmap fonts in the Umbra mod. Umbra Setup and the launcher are set in it too: they carry one fixed instance of it (width 80, weight 600, named Tektur Narrow SemiBold) with its licence."
+
+[[credit]]
+id = "font-play"
+mod = "Play"
+authors = ["Jonas Hecksher", "Playtypes", "e-types AS"]
+url = "https://fonts.google.com/specimen/Play"
+role = "extra"
+license = "OFL-1.1"
+notes = "Typeface for Umbra's UI text and loading screen, drawn into the game's bitmap fonts in the Umbra mod. Umbra Setup and the launcher are set in it too: they carry the Play font files unmodified, with their licence."

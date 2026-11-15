@@ -16,12 +16,12 @@ import tkinter as tk
 import traceback
 from tkinter import filedialog, ttk
 
-from . import VERSION, fetch, install, mo2, packdef, shortcuts, steam
+from . import VERSION, fetch, install, mo2, packdef, shortcuts, steam, typeface
 
 # Umbra's colours (branding/README.md)
 SOOT, PANEL, PANEL2, LINE = "#14130f", "#1c1a15", "#24211b", "#3a352b"
 BONE, MUTED, PAPER = "#d9cca6", "#9a907a", "#cdbf99"
-RUST, RUST_HI, OK, BAD = "#84301f", "#9e3b26", "#8fa66b", "#d0614a"
+UMBER, UMBER_HI, OK, BAD = "#5e4532", "#71533c", "#8fa66b", "#d0614a"
 PAD = 12
 
 
@@ -103,14 +103,15 @@ def detect_gamma_cache():
 
 
 def style(root):
-    """Umbra's ttk look (Setup and the launcher)."""
+    """Umbra's ttk look (Setup and the launcher), in Umbra's typefaces."""
+    typeface.setup(root)
     st = ttk.Style(root)
     try:
         st.theme_use("clam")
     except tk.TclError:
         pass
     st.configure(".", background=SOOT, foreground=BONE, fieldbackground=PANEL2, bordercolor=LINE,
-                 lightcolor=LINE, darkcolor=LINE, troughcolor=PANEL, focuscolor=RUST)
+                 lightcolor=LINE, darkcolor=LINE, troughcolor=PANEL, focuscolor=UMBER)
     st.configure("TFrame", background=SOOT)
     st.configure("Card.TFrame", background=PANEL)
     st.configure("TLabel", background=SOOT, foreground=BONE)
@@ -118,27 +119,30 @@ def style(root):
     st.configure("Muted.TLabel", background=SOOT, foreground=MUTED)
     st.configure("CardMuted.TLabel", background=PANEL, foreground=MUTED)
     st.configure("Bad.TLabel", background=SOOT, foreground=BAD)
-    st.configure("Head.TLabel", background=SOOT, foreground=BONE, font=("TkDefaultFont", 15, "bold"))
-    st.configure("TButton", background=PANEL2, foreground=BONE, padding=(16, 8), borderwidth=1)
+    st.configure("Logo.TLabel", background=SOOT, foreground=BONE, font=typeface.font("head", 40))
+    st.configure("CreditsHead.TLabel", background=PANEL, foreground=BONE, font=typeface.font("head", 13))
+    st.configure("Head.TLabel", background=SOOT, foreground=BONE, font=typeface.font("head", 16))
+    st.configure("TButton", background=PANEL2, foreground=BONE, padding=(16, 8), borderwidth=1,
+                 font=typeface.font("head", 11))
     st.map("TButton", background=[("active", LINE), ("disabled", PANEL)], foreground=[("disabled", MUTED)])
-    st.configure("Go.TButton", background=RUST, foreground=PAPER, padding=(22, 9), font=("TkDefaultFont", 11, "bold"))
-    st.map("Go.TButton", background=[("active", RUST_HI), ("disabled", PANEL)], foreground=[("disabled", MUTED)])
+    st.configure("Go.TButton", background=UMBER, foreground=PAPER, padding=(22, 9), font=typeface.font("head", 12))
+    st.map("Go.TButton", background=[("active", UMBER_HI), ("disabled", PANEL)], foreground=[("disabled", MUTED)])
     st.configure("TEntry", foreground=BONE, insertcolor=BONE, padding=5)
     st.configure("TCheckbutton", background=PANEL, foreground=BONE)
     st.map("TCheckbutton", background=[("active", PANEL)])
     st.configure("TRadiobutton", background=PANEL, foreground=BONE)
     st.map("TRadiobutton", background=[("active", PANEL)])
-    st.configure("Card.TRadiobutton", background=PANEL, foreground=BONE, font=("TkDefaultFont", 11, "bold"))
+    st.configure("Card.TRadiobutton", background=PANEL, foreground=BONE, font=typeface.font("head", 12))
     st.map("Card.TRadiobutton", background=[("active", PANEL)])
     st.configure("TCombobox", fieldbackground=PANEL2, foreground=BONE, background=PANEL2, arrowcolor=BONE)
     # clam paints a read-only box light grey: keep it dark, and its list too
     st.map("TCombobox", fieldbackground=[("readonly", PANEL2), ("disabled", PANEL)],
            foreground=[("disabled", MUTED), ("readonly", BONE)], background=[("active", LINE)],
            selectbackground=[("readonly", PANEL2)], selectforeground=[("readonly", BONE)])
-    for k, v in (("background", PANEL2), ("foreground", BONE), ("selectBackground", RUST),
+    for k, v in (("background", PANEL2), ("foreground", BONE), ("selectBackground", UMBER),
                  ("selectForeground", PAPER)):
         root.option_add("*TCombobox*Listbox." + k, v)
-    st.configure("Horizontal.TProgressbar", background=RUST, troughcolor=PANEL, bordercolor=LINE, thickness=14)
+    st.configure("Horizontal.TProgressbar", background=UMBER, troughcolor=PANEL, bordercolor=LINE, thickness=14)
 
 
 def load_image(name):
@@ -167,12 +171,31 @@ def credits_window(master, pack):
     w = tk.Toplevel(master, bg=SOOT)
     w.title("Umbra credits")
     w.geometry("720x560")
-    t = tk.Text(w, bg=PANEL, fg=BONE, relief="flat", wrap="word", padx=14, pady=12)
+    t = tk.Text(w, bg=PANEL, fg=BONE, relief="flat", wrap="word", padx=14, pady=12, font="TkTextFont")
     t.pack(fill="both", expand=True, padx=PAD, pady=PAD)
-    t.tag_configure("h", font=("TkDefaultFont", 12, "bold"), spacing1=10, spacing3=4)
+    t.tag_configure("h", font=typeface.font("head", 13), spacing1=10, spacing3=4)
     t.tag_configure("m", foreground=MUTED)
+    styles = {"": "Card.TLabel", "h": "CreditsHead.TLabel", "m": "CardMuted.TLabel"}
+    t._imgs = []
+
+    def put(text, tag=""):
+        # Tk can't draw Umbra's fonts here (typeface.py): each piece goes in drawn, a line at a time
+        if typeface.MODE != "image":
+            t.insert("end", text, tag)
+            return
+        for i, line in enumerate(text.split("\n")):
+            if i:
+                t.insert("end", "\n", tag)
+            if line.strip():
+                img = typeface.text_image(t, line, styles[tag], wrap=640)
+                t._imgs.append(img)
+                t.image_create("end", image=img, align="baseline")
+                if tag:
+                    t.tag_add(tag, "end-2c")      # (a heading's spacing comes with its tag)
+            elif line:
+                t.insert("end", line, tag)
     if not pack:
-        t.insert("end", "The credits come with the pack, which hasn't loaded yet.")
+        put("The credits come with the pack, which hasn't loaded yet.")
     else:
         roles = [("base", "The base"), ("engine", "Engine"), ("extra", "Mods in Umbra"),
                  ("gamma-optional", "G.A.M.M.A. options Umbra turns on"),
@@ -182,15 +205,15 @@ def credits_window(master, pack):
             rows = [c for c in cs if (c.get("role") or "extra") == role]
             if not rows:
                 continue
-            t.insert("end", title + "\n", "h")
+            put(title + "\n", "h")
             for c in rows:
-                t.insert("end", "%s  " % c.get("mod", c.get("id")))
-                t.insert("end", "by %s" % (", ".join(c.get("authors") or []) or "author unknown"), "m")
+                put("%s  " % c.get("mod", c.get("id")))
+                put("by %s" % (", ".join(c.get("authors") or []) or "author unknown"), "m")
                 if c.get("url"):
-                    t.insert("end", "\n    " + c["url"], "m")
-                t.insert("end", "\n")
+                    put("\n    " + c["url"], "m")
+                put("\n")
     t.configure(state="disabled")
-    ttk.Button(w, text="Close", command=w.destroy).pack(pady=(0, PAD))
+    typeface.Button(w, text="Close", command=w.destroy).pack(pady=(0, PAD))
     return w
 
 
@@ -231,7 +254,7 @@ class App:
         if self.logo:
             tk.Label(self.header, image=self.logo, bg=SOOT).pack()
         else:
-            tk.Label(self.header, text="UMBRA", font=("TkDefaultFont", 40, "bold"), fg=BONE, bg=SOOT).pack()
+            typeface.Label(self.header, text="UMBRA", style="Logo.TLabel").pack()
         self.body = tk.Frame(root, bg=SOOT)
         self.body.pack(fill="both", expand=True, padx=PAD * 3, pady=(0, PAD))
         self.footer = tk.Frame(root, bg=SOOT)
@@ -257,14 +280,14 @@ class App:
         self._icons = set_icon(self.root)
 
     def _text(self, parent, text, style="TLabel", wrap=760, **kw):
-        lab = ttk.Label(parent, text=text, style=style, wraplength=wrap, justify="left", **kw)
+        lab = typeface.Label(parent, text=text, style=style, wraplength=wrap, justify="left", **kw)
         return lab
 
     def _buttons(self, *specs):
         for w in self.footer.winfo_children():
             w.destroy()
         for side, text, cmd, style, name in specs:
-            b = ttk.Button(self.footer, text=text, command=cmd, style=style)
+            b = typeface.Button(self.footer, text=text, command=cmd, style=style)
             b.pack(side=side, padx=(PAD // 2, 0) if side == "right" else (0, PAD // 2))
             setattr(self, "b_" + name, b)
 
@@ -321,12 +344,12 @@ class App:
                 # pick one: a row of radio buttons, each with what it adds to the download
                 v = tk.StringVar(value=o["default"])
                 self.v_opts[o["id"]] = v
-                ttk.Label(self.f_options, text=o.get("title") or o["id"], style="Card.TLabel").pack(anchor="w")
+                typeface.Label(self.f_options, text=o.get("title") or o["id"], style="Card.TLabel").pack(anchor="w")
                 row = ttk.Frame(self.f_options, style="Card.TFrame")
                 row.pack(anchor="w", padx=(24, 0))
                 for c in o["choices"]:
                     size = packdef.option_bytes(pack, packdef.choice_key(o["id"], c["id"]))
-                    ttk.Radiobutton(row, text="%s (+%s)" % (c.get("title") or c["id"], packdef.human(size)),
+                    typeface.Radiobutton(row, text="%s (+%s)" % (c.get("title") or c["id"], packdef.human(size)),
                                     value=c["id"], variable=v, command=self.replan).pack(side="left", padx=(0, 14))
                 if o.get("description"):
                     self._text(self.f_options, o["description"], style="CardMuted.TLabel", wrap=720).pack(
@@ -334,7 +357,7 @@ class App:
                 continue
             v = tk.BooleanVar(value=bool(o.get("default")))
             self.v_opts[o["id"]] = v
-            ttk.Checkbutton(self.f_options, text="%s (+%s)" % (o.get("title") or o["id"],
+            typeface.Checkbutton(self.f_options, text="%s (+%s)" % (o.get("title") or o["id"],
                                                                packdef.human(packdef.option_bytes(pack, o["id"]))),
                             variable=v, command=self.replan).pack(anchor="w")
             if o.get("description"):
@@ -357,7 +380,7 @@ class App:
         def card(mode, title, text, var, pick):
             c = ttk.Frame(cards, style="Card.TFrame", padding=PAD)
             c.pack(fill="x", pady=(0, PAD))
-            ttk.Radiobutton(c, text=title, value=mode, variable=self.v_mode, style="Card.TRadiobutton",
+            typeface.Radiobutton(c, text=title, value=mode, variable=self.v_mode, style="Card.TRadiobutton",
                             command=self.replan).pack(anchor="w")
             self._text(c, text, style="CardMuted.TLabel", wrap=740).pack(anchor="w", padx=(24, 0), pady=(2, 6))
             row = ttk.Frame(c, style="Card.TFrame")
@@ -366,7 +389,7 @@ class App:
             e.pack(side="left", fill="x", expand=True)
             e.bind("<FocusOut>", lambda ev: self.replan())
             e.bind("<Return>", lambda ev: self.replan())
-            ttk.Button(row, text="Browse...", command=pick).pack(side="left", padx=(PAD // 2, 0))
+            typeface.Button(row, text="Browse...", command=pick).pack(side="left", padx=(PAD // 2, 0))
             return c
 
         c_new = card("new", "Install everything",
@@ -374,7 +397,7 @@ class App:
                      "by stalker-gamma-cli: about 150 GB and an hour or more.", self.v_root, self.pick_root)
         self.v_reuse = tk.BooleanVar(value=bool(self.gamma_cache))
         if self.gamma_cache:
-            ttk.Checkbutton(c_new, text="Reuse the G.A.M.M.A. downloads already in %s (only what is missing is "
+            typeface.Checkbutton(c_new, text="Reuse the G.A.M.M.A. downloads already in %s (only what is missing is "
                                         "downloaded, into that folder)" % self.gamma_cache,
                             variable=self.v_reuse, command=self.replan).pack(anchor="w", padx=(24, 0), pady=(6, 0))
         card("existing", "I already have G.A.M.M.A.",
@@ -384,20 +407,20 @@ class App:
         opts.pack(fill="x")
         row = ttk.Frame(opts, style="Card.TFrame")
         row.pack(fill="x")
-        ttk.Checkbutton(row, text="Add Umbra to Steam (a shortcut in your library)", variable=self.v_steam,
+        typeface.Checkbutton(row, text="Add Umbra to Steam (a shortcut in your library)", variable=self.v_steam,
                         command=self.replan).pack(side="left")
         self.v_proton = tk.StringVar(value="proton_experimental")
         if os.name != "nt":
             roots = steam.steam_roots()
             tools = steam.compat_tools(roots[0]) if roots else [("proton_experimental", "Proton Experimental")]
             self._tools = tools
-            ttk.Label(row, text="   runs with", style="CardMuted.TLabel").pack(side="left")
+            typeface.Label(row, text="   runs with", style="CardMuted.TLabel").pack(side="left")
             cb = ttk.Combobox(row, state="readonly", width=26, values=[t[1] for t in tools])
             cb.current(len(tools) - 1)
             cb.bind("<<ComboboxSelected>>", lambda e: self.v_proton.set(tools[cb.current()][0]))
             cb.pack(side="left", padx=(6, 0))
         self.v_shortcuts = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="Add Umbra to %s and the desktop, to start it without Steam too"
+        typeface.Checkbutton(opts, text="Add Umbra to %s and the desktop, to start it without Steam too"
                         % shortcuts.where_words(), variable=self.v_shortcuts).pack(anchor="w", pady=(6, 0))
         self.f_options = ttk.Frame(opts, style="Card.TFrame")
         self.f_options.pack(fill="x", pady=(6, 0))
@@ -522,7 +545,7 @@ class App:
             self.icons = {"todo": step_icon("todo", MUTED, SOOT), "now": step_icon("now", BONE, SOOT),
                           "done": step_icon("done", OK, SOOT)}
         for sid, title, _ in self.plan.steps:
-            lab = ttk.Label(self.steps_frame, text="  " + title, image=self.icons["todo"], compound="left",
+            lab = typeface.Label(self.steps_frame, text="  " + title, image=self.icons["todo"], compound="left",
                             style="Muted.TLabel")
             lab.pack(anchor="w")
             self.step_labels[sid] = (lab, title)
@@ -642,7 +665,7 @@ class App:
 
     # ------------------------------------------------------------ done
     def _page_done(self, f):
-        ttk.Label(f, text="Umbra is installed.", style="Head.TLabel").pack(anchor="w")
+        typeface.Label(f, text="Umbra is installed.", style="Head.TLabel").pack(anchor="w")
         self.l_done = self._text(f, "", wrap=780)
         self.l_done.pack(anchor="w", pady=(PAD, 0))
         self._text(f, "Umbra is made of other people's work. If you enjoy it, tell them: the credits list every "
@@ -699,19 +722,25 @@ class App:
                     f.write("%s: %s\n" % (level, msg))
 
     def _pump(self):
+        items = []
         try:
             while True:
-                kind, arg = self.q.get_nowait()
-                if kind == "pack":
-                    self.on_pack(arg)
-                    if self.page == "welcome":
-                        self.b_next.state(["!disabled"])
-                elif kind == "pack_error":
-                    self.l_pack.configure(text="Could not read the Umbra pack: %s" % arg, style="Bad.TLabel")
-                else:
-                    getattr(self, "on_" + kind)(arg)
+                items.append(self.q.get_nowait())
         except queue.Empty:
             pass
+        # downloads report every chunk: of a run of one step's progress, only the last counts
+        items = [it for i, it in enumerate(items)
+                 if not (it[0] == "progress" and it[1][1] < 1.0 and i + 1 < len(items)
+                         and items[i + 1][0] == "progress" and items[i + 1][1][0] == it[1][0])]
+        for kind, arg in items:
+            if kind == "pack":
+                self.on_pack(arg)
+                if self.page == "welcome":
+                    self.b_next.state(["!disabled"])
+            elif kind == "pack_error":
+                self.l_pack.configure(text="Could not read the Umbra pack: %s" % arg, style="Bad.TLabel")
+            else:
+                getattr(self, "on_" + kind)(arg)
         if not self.closing:
             self.root.after(100, self._pump)
 

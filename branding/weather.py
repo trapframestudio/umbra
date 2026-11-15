@@ -102,7 +102,7 @@ PEEL_CRETE = ("crete\\crete_stena_kraska_02", "dark", 0.42, 0.55)
 PEEL_BARREL = ("mtl\\mtl_bochka_03_r", "unred", 0.9, 0.45)
 MATERIALS = {
     "pale": dict(peel=[PEEL_CRETE, PEEL_BARREL], grime="wall\\wall_walls_paint_01"),
-    "red": dict(peel=[("mtl\\mtl_bochka_03_r", "unred", 0.9, 0.75), PEEL_CRETE[:3] + (0.25,)], grime="mtl\\mtl_red_painted"),
+    "barrel": dict(peel=[("mtl\\mtl_bochka_03_r", "unred", 0.9, 0.75), PEEL_CRETE[:3] + (0.25,)], grime="mtl\\mtl_red_painted"),
     "dark": dict(peel=[PEEL_CRETE, PEEL_BARREL], grime="wall\\wall_walls_paint_01"),
 }
 

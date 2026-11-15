@@ -184,6 +184,51 @@ def choose_folder(mods_dir, layer):
     raise LayerError('"%s" and its alternatives are taken by other mods' % name)
 
 
+def renamed_folder(mods_dir, layer, other_ids=()):
+    """The folder an earlier pack installed this layer in under an older name (layer["was"]):
+    one holding Umbra's marker, for this layer or for none of the pack's other layers (other_ids:
+    a layer whose id changed with its name). None if there is none."""
+    for old in layer.get("was", []):
+        for cand in (old, old + " (Umbra)", old + " (Umbra 2)"):
+            p = os.path.join(mods_dir, cand)
+            m = read_marker(p) if os.path.isdir(p) else None
+            if m and (m.get("id") == layer["id"] or m.get("id") not in other_ids):
+                return cand
+    return None
+
+
+def installed(mods_dir, layer, other_ids=()):
+    """Where this layer is installed now: (folder, its marker). The folder it goes in when it
+    isn't there yet, with marker None. An older name counts until Setup renames it."""
+    folder = choose_folder(mods_dir, layer)
+    m = read_marker(os.path.join(mods_dir, folder))
+    if m and m.get("id") == layer["id"]:
+        return folder, m
+    old = renamed_folder(mods_dir, layer, other_ids)
+    if old:
+        return old, read_marker(os.path.join(mods_dir, old))
+    return folder, None
+
+
+def adopt_renamed(mods_dir, layer, other_ids=()):
+    """Give a layer an earlier pack installed under an older name its new name, so it's updated
+    in place (the player's preserved files with it) instead of installed again beside the old
+    one. Returns (old folder, new folder), or None when there's nothing to rename."""
+    new = choose_folder(mods_dir, layer)
+    if os.path.exists(os.path.join(mods_dir, new)):
+        return None
+    old = renamed_folder(mods_dir, layer, other_ids)
+    if not old:
+        return None
+    os.replace(os.path.join(mods_dir, old), os.path.join(mods_dir, new))
+    m = read_marker(os.path.join(mods_dir, new))
+    if m.get("id") != layer["id"]:
+        m["id"] = layer["id"]
+        with open(os.path.join(mods_dir, new, MARKER), "w", encoding="utf-8") as f:
+            json.dump(m, f, indent=1)
+    return old, new
+
+
 def file_sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -225,9 +270,14 @@ def keep_players_files(layer, old_dir, new_dir, names, old_marker, log=None):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         where = layer.get("folder") or layer["id"]
         if rel in shipped:
-            os.replace(dst, dst + NEW_SUFFIX)
-            log('Kept your changed "%s" in %s; Umbra\'s new version is beside it as %s%s'
-                % (rel, where, os.path.basename(rel), NEW_SUFFIX), "warn")
+            # Umbra's own version unchanged (the mod is updated for its other files): the player's
+            # stays without a word, and a .umbra-new from an earlier update stays beside it
+            same = shipped_before.get(rel) == shipped[rel]
+            if not same or os.path.exists(mine + NEW_SUFFIX):
+                os.replace(dst, dst + NEW_SUFFIX)
+            if not same:
+                log('Kept your changed "%s" in %s; Umbra\'s new version is beside it as %s%s'
+                    % (rel, where, os.path.basename(rel), NEW_SUFFIX), "warn")
         else:
             log('Kept your own "%s" in %s' % (rel, where), "warn")
         shutil.copy2(mine, dst)

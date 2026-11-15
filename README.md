@@ -51,6 +51,7 @@ The `umbra_installer` package:
 | `cab.py` | Reading Microsoft's cabinet files (to take those DLLs out of Microsoft's downloads) |
 | `install.py` | The install, step by step (used by the window, the command line and the launcher) |
 | `gui.py` | The Umbra Setup window |
+| `typeface.py`, `ttf.py` | The windows' typefaces, Tektur Narrow and Play (`assets/fonts/`). Where Tk can't load a font file (the Linux program's Tk draws only X's core fonts), the text is drawn from the files into images |
 | `launcher.py`, `launcher_gui.py` | The Umbra launcher: its logic and its window |
 
 ## How a pack is defined
@@ -71,9 +72,17 @@ The `umbra_installer` package:
   folder. `target = "anomaly"` copies into the Anomaly folder instead (that is
   how xrRazom's `bin/` is installed). `archive` takes the files from a zip,
   or `source` from a pinned `[sources.<id>]` archive (zip or 7z; a 7z is
-  unpacked once into `~/.cache/umbra-src/unpacked`). `without_files_of`
-  leaves out every file other layers have. `credit` names an entry in
-  `credits.toml`.
+  unpacked once into `~/.cache/umbra-src/unpacked`). `from` takes a folder
+  from elsewhere (the source folder when it has another name), and `files`
+  adds single files on top of it. `without_files_of` leaves out every file
+  other layers have. `was` lists the folder's earlier names: Setup renames an
+  installed one instead of installing it again beside it. `credit` names an
+  entry in `credits.toml`.
+- The **Umbra mod** (`folder = "Umbra"`) is Umbra's own changes in one mod:
+  the tuned MCM values and the look from `look/` (splashes, fonts, the UI
+  repaint, text). It overrides only what Umbra changes, so G.A.M.M.A.'s UI
+  stays underneath; see `look/README.md`. Run `python3 look/layer.py` before
+  a pack build when the look changed.
 - A `[sources.<id>]` with `players_download = true` (and its `page` and
   `download` link) is never packed or uploaded: players' Setup downloads the
   author's archive itself. Its layers say what they take from it, in order, a
@@ -198,7 +207,8 @@ Either way, it then:
 1. Downloads every volume and checks its sha256. Broken downloads resume. The
    cache is kept, so a repair or an update downloads only what changed.
 2. Unpacks each layer into its MO2 mod folder, or into the Anomaly folder for
-   xrRazom's engine. A layer counts as in place only if its files still are
+   xrRazom's engine. A mod the pack renamed is renamed in place first, keeping
+   its place and on/off state in Umbra's profiles, so it isn't installed twice. A layer counts as in place only if its files still are
    (their sha256 is kept). A G.A.M.M.A. install or update puts G.A.M.M.A.'s
    own engine back over xrRazom's, and xrRazom's scripts then stop the game at
    load (`xrr_share_news_from` is nil). So Setup puts Umbra's back, and

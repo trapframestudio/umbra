@@ -38,6 +38,7 @@ page; 3 added options with choices):
                                           # ("ccon-season=summer": when that choice is picked)
          "profile": "extra",              # only switched on in that profile (implies its option)
          "preserve": true | ["gamedata/configs/*.ltx"],   # the player's edits survive updates
+         "was": ["Old Folder Name"],      # the folder's earlier names: Setup renames an installed one
          "meta_ini": "[General]\\r\\n...",   # MO2's meta.ini, for a layer whose volume has none
          "volumes": [<object> | <origin>, ...]}
       ],
@@ -223,6 +224,10 @@ def check_pack(p):
             if not safe_name(f) or f.lower() in seen_folders:
                 raise PackError("%s: bad or repeated folder %r" % (what, f))
             seen_folders.add(f.lower())
+        was = L.get("was", [])
+        if not isinstance(was, list) or (was and target != "mods") or not all(
+                isinstance(x, str) and safe_name(x) for x in was):
+            raise PackError("%s: was must list the mods folder's earlier names" % what)
         if L.get("option") and L["option"] not in layer_opts:
             raise PackError("%s: unknown option %r" % (what, L["option"]))
         if L.get("profile"):
@@ -238,6 +243,10 @@ def check_pack(p):
             raise PackError("%s: meta_ini is text, for a mods layer" % what)
         for j, v in enumerate(L["volumes"]):
             check_object(v, "%s volume %d" % (what, j))
+    folders = {L["folder"].lower() for L in p["layers"] if L.get("target", "mods") == "mods"}
+    olds = [x.lower() for L in p["layers"] for x in L.get("was", [])]
+    if len(olds) != len(set(olds)) or folders & set(olds):
+        raise PackError("a layer's earlier folder name (was) is another layer's folder, or listed twice")
     for d in p.get("dependencies", []):
         if not d.get("id") or not d.get("title"):
             raise PackError("a dependency has no id or title")
@@ -292,6 +301,11 @@ def chosen_profiles(p, choices=None):
     """The profiles this install gets: the main one, plus those of chosen options."""
     choices = normalize_choices(p, choices)
     return [pr for pr in all_profiles(p) if not pr.get("option") or pr["option"] in choices]
+
+
+def other_ids(pack, layer):
+    """The ids of the pack's layers other than this one."""
+    return {L["id"] for L in pack["layers"]} - {layer["id"]}
 
 
 def preserved(layer, rel):

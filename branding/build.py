@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Umbra logo, v3: late-Soviet propaganda lettering in faded Zone colours.
+Umbra logo, v3: worn enamel block lettering in faded Zone colours.
 
     python3 build.py          write the clean SVGs
     python3 build.py --png    also make the PNGs (weathered and clean) and the preview sheet
 
 The logo is type: UMBRA in heavy, condensed block letters with an offset
-rust print shadow, over a rust bar with the name in Cyrillic, УМБРА. The icon
-is the U from it on a soot tile. (v1, a minimal eclipse, and v2, a pin badge,
+burnt-umber print shadow, over an umber bar with ТІНЬ, Ukrainian for
+"shadow" (what umbra means; the word in Тінь Чорнобиля, Shadow of Chernobyl's
+Ukrainian title). The Cyrillic is Ukrainian on purpose: the І is a letter
+Russian doesn't have. The icon is the U from it on a soot tile. (v1, a minimal eclipse, and v2, a pin badge,
 are in archive/.)
 
-All lettering is hand-built geometry (Latin UMBRA and Cyrillic УМБРА), so no
+All lettering is hand-built geometry (Latin and Ukrainian Cyrillic), so no
 fonts are involved.
 
 The SVGs are clean, flat colour. The weathered PNGs are painted from real
@@ -31,14 +33,13 @@ PNG = os.path.join(HERE, "png")
 PAPER = "#cdbf99"
 OCHRE = "#b0883b"      # the sky
 OCHRE_D = "#95722f"    # sun rays
-RUST = "#84301f"       # faded propaganda red
-RUST_D = "#5a2116"
-RUST_DD = "#3c160e"
+UMBER = "#5e4532"      # burnt umber: print shadow and bar (was a propaganda red, dropped 2026-11-14)
+UMBER_D = "#402f22"
+UMBER_DD = "#2a1f16"
 SOOT = "#14130f"
 OLIVE = "#3f4026"
 BONE = "#d9cca6"
 GLINT = "#efe5c4"
-UMBER = "#2b251a"      # the eclipsed sun: dark, but not as dark as the plant
 PLANT = "#0f0e0b"
 
 # ---------------------------------------------------------------- lettering
@@ -64,6 +65,13 @@ GLYPHS = {
     "Р": (112, [[(0, 0), (88, 0), (112, 24), (112, 100), (88, 124), (38, 124), (38, 200), (0, 200)],
                 [(38, 34), (74, 34), (74, 90), (38, 90)]]),
     "А": A_,
+    # Ukrainian ТІНЬ ("shadow")
+    "Т": (112, [[(0, 0), (112, 0), (112, 34), (75, 34), (75, 200), (37, 200), (37, 34), (0, 34)]]),
+    "І": (38, [[(0, 0), (38, 0), (38, 200), (0, 200)]]),
+    "Н": (112, [[(0, 0), (38, 0), (38, 80), (74, 80), (74, 0), (112, 0), (112, 200), (74, 200), (74, 114),
+                 (38, 114), (38, 200), (0, 200)]]),
+    "Ь": (108, [[(0, 0), (38, 0), (38, 80), (84, 80), (108, 104), (108, 176), (84, 200), (0, 200)],
+                [(38, 114), (70, 114), (70, 166), (38, 166)]]),
     # for the launcher's PLAY button
     "L": (100, [[(0, 0), (38, 0), (38, 166), (100, 166), (100, 200), (0, 200)]]),
     "Y": (120, [[(0, 0), (40, 0), (60, 70), (80, 0), (120, 0), (79, 116), (79, 200), (41, 200), (41, 116)]]),
@@ -109,20 +117,25 @@ def svg_path(polys, fill):
 # where paint is gone.
 
 def logo(light_ground=False):
-    """UMBRA with an offset print shadow, over a bar with УМБРА."""
+    """UMBRA with an offset print shadow, over a bar with ТІНЬ."""
     x0 = y0 = 20
     tw = text_width("UMBRA", 16)
     sh = 12
     by = y0 + CAP + sh + 26
     bh = 84
     cs = 0.3
-    cw = text_width("УМБРА", 60) * cs
+    word, track = "ТІНЬ", 78
+    cw = text_width(word, track) * cs
     ink, mat = (SOOT, "dark") if light_ground else (BONE, "pale")
+    letters = glyph_polys(word, x0 + (tw + sh - cw) / 2, by + (bh - CAP * cs) / 2, cs, track)
+    thin = [p for c, p in zip(word, letters) if c == "І"]
     layers = [
-        (glyph_polys("UMBRA", x0 + sh, y0 + sh, 1), RUST, "red", 0.30),
+        (glyph_polys("UMBRA", x0 + sh, y0 + sh, 1), UMBER, "barrel", 0.30),
         (glyph_polys("UMBRA", x0, y0, 1), ink, mat, 0.17),
-        (rect_polys(x0, by, tw + sh, bh), RUST, "red", 0.22),
-        (glyph_polys("УМБРА", x0 + (tw + sh - cw) / 2, by + (bh - CAP * cs) / 2, cs, 60), PAPER, "pale", 0.10),
+        (rect_polys(x0, by, tw + sh, bh), UMBER, "barrel", 0.22),
+        ([p for c, p in zip(word, letters) if c != "І"], PAPER, "pale", 0.05),
+        # the І is one thin stroke: a chip out of it reads as "!", so it stays whole
+        (thin, PAPER, "pale", 0.0),
     ]
     return tw + sh + 2 * x0, CAP + sh + 26 + bh + 2 * y0, layers
 
@@ -131,7 +144,7 @@ def name():
     """UMBRA alone, no bar: for tight horizontal spaces."""
     tw = text_width("UMBRA", 16)
     layers = [
-        (glyph_polys("UMBRA", 32, 32, 1), RUST, "red", 0.30),
+        (glyph_polys("UMBRA", 32, 32, 1), UMBER, "barrel", 0.30),
         (glyph_polys("UMBRA", 20, 20, 1), BONE, "pale", 0.17),
     ]
     return tw + 52, CAP + 52, layers
@@ -146,19 +159,19 @@ def icon():
     by = y0 + h + 10
     layers = [
         (rect_polys(0, 0, S, S), SOOT, "dark", 0.10),
-        (glyph_polys("U", x0 + 12 * s, y0 + 12 * s, s), RUST, "red", 0.22),
+        (glyph_polys("U", x0 + 12 * s, y0 + 12 * s, s), UMBER, "barrel", 0.22),
         (glyph_polys("U", x0, y0, s), BONE, "pale", 0.10),
-        (rect_polys(22, by, S - 44, S - by - 14), RUST, "red", 0.18),
+        (rect_polys(22, by, S - 44, S - by - 14), UMBER, "barrel", 0.18),
     ]
     return S, S, layers
 
 
 def play():
-    """PLAY, for the launcher's button: paper letters with a dark print shadow (the button is rust)."""
+    """PLAY, for the launcher's button: paper letters with a dark print shadow (the button is umber)."""
     sh = 14
     tw = text_width("PLAY", 18)
     layers = [
-        (glyph_polys("PLAY", 8 + sh, 8 + sh, 1, 18), RUST_DD, "red", 0.0),
+        (glyph_polys("PLAY", 8 + sh, 8 + sh, 1, 18), UMBER_DD, "barrel", 0.0),
         (glyph_polys("PLAY", 8, 8, 1, 18), PAPER, "pale", 0.0),
     ]
     return tw + sh + 16, CAP + sh + 16, layers
@@ -180,11 +193,16 @@ FILES = {
 
 # weathered PNGs: (piece, file, width, seed); smaller sizes are downscaled from the first
 WORN = [
-    (logo, {}, [("umbra-logo-2400.png", 2400), ("umbra-logo-1280.png", 1280)], 7),
+    (logo, {}, [("umbra-logo-2400.png", 2400), ("umbra-logo-1280.png", 1280), ("umbra-logo-520.png", 520)], 7),
     (logo, dict(light_ground=True), [("umbra-logo-light-ground-1280.png", 1280)], 11),
     (name, {}, [("umbra-name-1600.png", 1600)], 5),
     (icon, {}, [("umbra-icon-512.png", 512), ("umbra-icon-256.png", 256)], 3),
 ]
+
+# what Setup and the launcher show (installer/umbra_installer/assets/), copied there on every --png build
+ASSETS = ["umbra-icon-256.png", "umbra-icon-64.png", "umbra-logo-1280.png", "umbra-logo-520.png", "umbra-play-104.png"]
+INSTALLER_ASSETS = os.path.join(HERE, "..", "installer", "umbra_installer", "assets")
+
 
 def clean_png(piece, width, path):
     import weather
@@ -238,6 +256,10 @@ def main():
         worn_pngs()
         preview()
         print(f"rendered the PNGs and preview.png to {PNG}")
+        import shutil
+        for fn in ASSETS:
+            shutil.copyfile(os.path.join(PNG, fn), os.path.join(INSTALLER_ASSETS, fn))
+        print(f"copied {len(ASSETS)} to {os.path.normpath(INSTALLER_ASSETS)}")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ window for about 3 seconds, so build on a desktop, or install `xvfb-run` when th
 | --- | --- |
 | `build.sh` | the build (pins for the two Pythons, appimagetool and the AppImage runtime are at the top) |
 | `requirements.txt` | the build tools, each wheel pinned by sha256 |
-| `umbra_setup.spec` | PyInstaller: one file, the assets, the cursor stand-in, the runtime hook, the Windows icon (made from `assets/umbra-icon-{256,64}.png`) and version info |
+| `umbra_setup.spec` | PyInstaller: one file, the assets (the PNGs, and `assets/fonts/` with its licences), the cursor stand-in, the runtime hook, the Windows icon (made from `assets/umbra-icon-{256,64}.png`) and version info |
 | `rthook_umbra.py` | runs inside the program before `umbra_setup.py` (see the gotchas) |
 | `nocursor.c` | the empty `libXcursor.so.1` stand-in for Linux (see the gotchas) |
 | `verify.py` | the checks run after each build |

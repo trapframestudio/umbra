@@ -12,8 +12,8 @@ import tkinter as tk
 import traceback
 from tkinter import ttk
 
-from . import fetch, install, mo2, packdef
-from .gui import BAD, BONE, LINE, MUTED, OK, PAD, PANEL, PANEL2, PAPER, RUST, RUST_HI, SOOT, credits_window, \
+from . import fetch, install, mo2, packdef, typeface
+from .gui import BAD, BONE, LINE, MUTED, OK, PAD, PANEL, PANEL2, PAPER, UMBER, UMBER_HI, SOOT, credits_window, \
     load_image, open_url, set_icon, style
 from .launcher import NO_PROTON, Install, child_env, names
 
@@ -47,13 +47,14 @@ class Window:
         self.vars = {}
         style(root)
         st = ttk.Style(root)
-        st.configure("Play.TButton", background=RUST, foreground=PAPER, padding=(80, 14),
-                     font=("TkDefaultFont", 18, "bold"))
-        st.map("Play.TButton", background=[("active", RUST_HI), ("disabled", PANEL)],
+        st.configure("Play.TButton", background=UMBER, foreground=PAPER, padding=(80, 14),
+                     font=typeface.font("head", 18))
+        st.map("Play.TButton", background=[("active", UMBER_HI), ("disabled", PANEL)],
                foreground=[("disabled", MUTED)])
         st.configure("Ok.TLabel", background=SOOT, foreground=OK)
-        st.configure("CardHead.TLabel", background=PANEL, foreground=BONE, font=("TkDefaultFont", 11, "bold"))
-        st.configure("TMenubutton", background=PANEL2, foreground=BONE, padding=(16, 8), arrowcolor=BONE)
+        st.configure("CardHead.TLabel", background=PANEL, foreground=BONE, font=typeface.font("head", 12))
+        st.configure("TMenubutton", background=PANEL2, foreground=BONE, padding=(16, 8), arrowcolor=BONE,
+                     font=typeface.font("head", 11))
         st.map("TMenubutton", background=[("active", LINE), ("disabled", PANEL)], foreground=[("disabled", MUTED)])
         root.title("Umbra")
         root.configure(bg=SOOT)
@@ -65,8 +66,8 @@ class Window:
         if self.logo:
             tk.Label(head, image=self.logo, bg=SOOT).pack()
         else:
-            tk.Label(head, text="UMBRA", font=("TkDefaultFont", 40, "bold"), fg=BONE, bg=SOOT).pack()
-        self.sub = ttk.Label(head, style="Muted.TLabel")
+            typeface.Label(head, text="UMBRA", style="Logo.TLabel").pack()
+        self.sub = typeface.Label(head, style="Muted.TLabel")
         self.sub.pack(pady=(PAD // 2, 0))
         self.body = tk.Frame(root, bg=SOOT)
         self.body.pack(fill="both", expand=True, padx=PAD * 3, pady=(0, PAD * 2))
@@ -84,22 +85,22 @@ class Window:
         self.sub.configure(text=("Umbra %s - G.A.M.M.A. with xrRazom co-op" % inst.version) if inst.version
                            else "G.A.M.M.A. with xrRazom co-op")
         if not inst.found:
-            ttk.Label(self.body, style="TLabel", wraplength=700, justify="left",
+            typeface.Label(self.body, style="TLabel", wraplength=700, justify="left",
                       text="There is no Umbra install here. Run Umbra Setup to install Umbra, or to repair it "
                            "(it puts this launcher in the install).").pack(pady=PAD * 2)
-            ttk.Button(self.body, text="Close", command=self.on_close).pack()
+            typeface.Button(self.body, text="Close", command=self.on_close).pack()
             return
         # Play, and which engine
         play = tk.Frame(self.body, bg=SOOT)
         play.pack(pady=(PAD, PAD))
         self.play_img = load_image("umbra-play-104.png")     # the logo's lettering (branding/build.py)
-        self.b_play = ttk.Button(play, text="PLAY", image=self.play_img or "", style="Play.TButton",
+        self.b_play = typeface.Button(play, text="PLAY", image=self.play_img or "", style="Play.TButton",
                                  command=self.play)
         self.b_play.pack()
         eng = tk.Frame(self.body, bg=SOOT)
         eng.pack(pady=(0, PAD * 2))
         self.engines = inst.engines()
-        ttk.Label(eng, text="Renderer", style="Muted.TLabel").pack(side="left", padx=(0, PAD))
+        typeface.Label(eng, text="Renderer", style="Muted.TLabel").pack(side="left", padx=(0, PAD))
         self.v_engine = tk.StringVar(value=inst.engine(self.engines) or "")
         self.c_engine = ttk.Combobox(eng, textvariable=self.v_engine, state="readonly", width=28,
                                      values=[t for t, _ in self.engines])
@@ -111,10 +112,10 @@ class Window:
         # the rest
         tools = tk.Frame(self.body, bg=SOOT)
         tools.pack(pady=(PAD * 2, PAD))
-        self.b_update = ttk.Button(tools, text="Check for updates", command=self.check)
-        self.b_mo2 = ttk.Button(tools, text="Open Mod Organizer 2", command=self.open_mo2)
-        self.b_credits = ttk.Button(tools, text="Credits", command=lambda: credits_window(self.root, self.inst.pack))
-        self.b_folders = ttk.Menubutton(tools, text="Folders")
+        self.b_update = typeface.Button(tools, text="Check for updates", command=self.check)
+        self.b_mo2 = typeface.Button(tools, text="Open Mod Organizer 2", command=self.open_mo2)
+        self.b_credits = typeface.Button(tools, text="Credits", command=lambda: credits_window(self.root, self.inst.pack))
+        self.b_folders = typeface.Menubutton(tools, text="Folders")
         menu = tk.Menu(self.b_folders, tearoff=0, bg=PANEL2, fg=BONE, activebackground=LINE,
                        activeforeground=BONE, relief="flat")
         for label, path in inst.folders():
@@ -123,7 +124,7 @@ class Window:
         for b in (self.b_update, self.b_mo2, self.b_credits, self.b_folders):
             b.pack(side="left", padx=PAD // 2)
         # what is happening
-        self.status = ttk.Label(self.body, style="Muted.TLabel", wraplength=700, justify="left")
+        self.status = typeface.Label(self.body, style="Muted.TLabel", wraplength=700, justify="left")
         self.status.pack(fill="x", pady=(PAD // 2, 0))
         self.bar = ttk.Progressbar(self.body, mode="determinate", maximum=1.0)
         self.actions = tk.Frame(self.body, bg=SOOT)
@@ -136,7 +137,7 @@ class Window:
         self.vars = {}
         pack = self.inst.pack
         if not pack:
-            ttk.Label(self.card, style="CardMuted.TLabel", wraplength=680,
+            typeface.Label(self.card, style="CardMuted.TLabel", wraplength=680,
                       text="Umbra's options appear here once its pack has been read.").pack(anchor="w")
             self.b_apply = None
             return
@@ -147,25 +148,25 @@ class Window:
             return
         cur = self.inst.picks()
         for o in opts:
-            ttk.Label(self.card, text=o["title"], style="CardHead.TLabel").pack(anchor="w")
+            typeface.Label(self.card, text=o["title"], style="CardHead.TLabel").pack(anchor="w")
             row = ttk.Frame(self.card, style="Card.TFrame")
             row.pack(anchor="w", pady=(6, 4))
             if o.get("choices"):
                 v = tk.StringVar(value=packdef.picked(pack, cur, o["id"]))
                 for c in o["choices"]:
-                    ttk.Radiobutton(row, text=c.get("title") or c["id"], value=c["id"], variable=v).pack(
+                    typeface.Radiobutton(row, text=c.get("title") or c["id"], value=c["id"], variable=v).pack(
                         side="left", padx=(0, PAD + 4))
             else:
                 v = tk.BooleanVar(value=o["id"] in cur)
-                ttk.Checkbutton(row, text="On", variable=v).pack(side="left")
+                typeface.Checkbutton(row, text="On", variable=v).pack(side="left")
             v.trace_add("write", lambda *_: self.idle())
             self.vars[o["id"]] = v
             if o.get("description"):
-                ttk.Label(self.card, text=o["description"], style="CardMuted.TLabel", wraplength=680,
+                typeface.Label(self.card, text=o["description"], style="CardMuted.TLabel", wraplength=680,
                           justify="left").pack(anchor="w", pady=(0, PAD))
         foot = ttk.Frame(self.card, style="Card.TFrame")
         foot.pack(fill="x")
-        self.b_apply = ttk.Button(foot, text="Apply", style="Go.TButton", command=self.apply)
+        self.b_apply = typeface.Button(foot, text="Apply", style="Go.TButton", command=self.apply)
         self.b_apply.pack(side="right")
 
     def picks(self):
@@ -187,7 +188,7 @@ class Window:
         for w in self.actions.winfo_children():
             w.destroy()
         for text, cmd, st in specs:
-            ttk.Button(self.actions, text=text, command=cmd, style=st).pack(side="left", padx=PAD // 2)
+            typeface.Button(self.actions, text=text, command=cmd, style=st).pack(side="left", padx=PAD // 2)
 
     def idle(self):
         """Nothing running: what can be pressed, and why not."""
