@@ -463,10 +463,12 @@ class B2Upload(unittest.TestCase):
         cls.bakes = baked(cls.pack, cls.template)
         cls.pack_rel = "packs/umbra-%s.json" % cls.pack["version"]
         cls.expected = set(cls.refs) | set(cls.bakes) | {cls.pack_rel, "CREDITS.md", "channels/stable.json"}
+        if cls.bakes:                        # the list of bakes Umbra Effects Setup reads
+            cls.expected.add(b2_upload.BAKE_INDEX)
         cls.large = sorted(p for p, o in cls.refs.items() if o["size"] > THRESHOLD)
         # every file that goes up in parts (the pack manifest is over the tiny test threshold too)
-        cls.large_all = sorted(n for n in cls.expected
-                               if os.path.getsize(os.path.join(cls.template, *n.split("/"))) > THRESHOLD)
+        cls.large_all = sorted(n for n in cls.expected if n != b2_upload.BAKE_INDEX       # (written by the run)
+                               and os.path.getsize(os.path.join(cls.template, *n.split("/"))) > THRESHOLD)
 
     @classmethod
     def tearDownClass(cls):
@@ -527,7 +529,7 @@ class B2Upload(unittest.TestCase):
                                                    ".txt": "text/plain", ".md": "text/markdown; charset=utf-8"}[ext])
             self.assertEqual(meta["fileInfo"]["b2-cache-control"],
                              "public, max-age=31536000, immutable" if name.startswith(("objects/", "umbra-effects/"))
-                             else "public, max-age=300", name)
+                             and name != b2_upload.BAKE_INDEX else "public, max-age=300", name)
             if f.files[name]["parts"] is None:                       # a plain upload: B2's SHA1 of the file
                 self.assertEqual(meta["contentSha1"], sha1(data), name)
             else:                                                    # a large file: each part's SHA1, and the whole
@@ -549,6 +551,8 @@ class B2Upload(unittest.TestCase):
         def rank(n):
             if n.startswith("objects/") or (n.startswith("umbra-effects/") and n.endswith(".zip")):
                 return 0
+            if n == b2_upload.BAKE_INDEX:
+                return 1.5                    # after the manifests it names
             return 1 if n.startswith("umbra-effects/") else 3 if n.startswith("channels/") else 2
         rank = {n: rank(n) for n in names}
         self.assertEqual([rank[n] for n in names], sorted(rank[n] for n in names), names)
@@ -791,7 +795,7 @@ class B2Upload(unittest.TestCase):
         f = self.fake
         code, out = self.run_cli("--dry-run", *self.upload_args("--bakes"))
         self.assertEqual(code, 0, out)
-        self.assertIn("Total: %d files" % len(self.bakes), out)
+        self.assertIn("Total: %d files" % (len(self.bakes) + 1), out)
         self.assertNotIn("channels/", out)
         code, out = self.run_cli(*self.upload_args("--bakes", "--channel", "stable"))
         self.assertEqual(code, 1, out)
@@ -799,8 +803,9 @@ class B2Upload(unittest.TestCase):
         code, out = self.run_cli(*self.upload_args("--bakes", "--yes", "--base-url-check",
                                                    f.url + "/file/" + f.bucket_name))
         self.assertEqual(code, 0, out)
-        self.assertEqual(set(f.files), set(self.bakes))
-        self.assertEqual(f.completed[-1], next(n for n in self.bakes if n.endswith(".json")))   # the manifest last
+        self.assertEqual(set(f.files), set(self.bakes) | {b2_upload.BAKE_INDEX})
+        self.assertEqual(f.completed[-2:], [next(n for n in self.bakes if n.endswith(".json")),   # the manifest,
+                                            b2_upload.BAKE_INDEX])                               # then the list
         for n in self.bakes:
             self.assertEqual(f.files[n]["data"], self.local(n), n)
             self.assertEqual(f.files[n]["meta"]["fileInfo"]["b2-cache-control"], "public, max-age=31536000, immutable")
@@ -808,7 +813,7 @@ class B2Upload(unittest.TestCase):
         # the full publish afterwards skips them
         code, out = self.run_cli(*self.upload_args("--yes"))
         self.assertEqual(code, 0, out)
-        self.assertIn("%d files already there" % len(self.bakes), out)
+        self.assertIn("%d files already there" % (len(self.bakes) + 1), out)      # (+ the unchanged list)
         self.assert_published()
 
     def test_bakes_are_checked(self):
@@ -827,6 +832,41 @@ class B2Upload(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("--bake-only", out)
         self.assertEqual(self.fake.completed, [])
+
+    def test_the_list_of_bakes(self):
+        """umbra-effects/index.json: what Umbra Effects Setup reads to find a ready-made bake. It is
+        merged with the bucket's list (other fingerprints stay), and an unchanged list is skipped."""
+        f = self.fake
+        other = {"path": "umbra-effects/%s/%s.json" % ("cd" * 16, "ef" * 32), "sha256": "ef" * 32, "size": 9,
+                 "fingerprint": "cd" * 16, "baker": 3, "zgo": "1.7.1", "made": "2020-01-01 00:00:00", "models": 1,
+                 "download": 1, "bytes": 1}
+        mine_old = dict(other, fingerprint="ab" * 16, path="umbra-effects/%s/%s.json" % ("ab" * 16, "01" * 32),
+                        made="2019-01-01 00:00:00")
+        old = json.dumps({"format": 1, "kind": "umbra-effects-bakes", "bakes": [other, mine_old]}).encode()
+        f.seed(b2_upload.BAKE_INDEX, old, {"sha256": sha256(old)})
+        code, out = self.run_cli(*self.upload_args("--bakes", "--yes"))
+        self.assertEqual(code, 0, out)
+        got = json.loads(f.files[b2_upload.BAKE_INDEX]["data"])
+        self.assertEqual((got["format"], got["kind"]), (1, "umbra-effects-bakes"))
+        man = next(n for n in self.bakes if n.endswith(".json"))
+        self.assertEqual([e["path"] for e in got["bakes"]], [man, other["path"]],
+                         "this bake replaces the older one of its fingerprint; the other fingerprint stays")
+        e = got["bakes"][0]
+        b = json.loads(self.local(man))
+        self.assertEqual((e["sha256"], e["size"], e["fingerprint"], e["baker"], e["download"], e["bytes"]),
+                         (sha256(self.local(man)), len(self.local(man)), b["fingerprint"], b["baker"],
+                          sum(v["size"] for v in b["volumes"]), b["bytes"]))
+        self.assertEqual(f.files[b2_upload.BAKE_INDEX]["meta"]["fileInfo"]["b2-cache-control"], "public, max-age=300")
+        n = len(f.completed)
+        code, out = self.run_cli(*self.upload_args("--bakes", "--yes"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(f.completed), n, "nothing changed, nothing sent")
+        # a list that is not one: refused, nothing sent
+        f.seed(b2_upload.BAKE_INDEX, b"<html>", {"sha256": sha256(b"<html>")})
+        code, out = self.run_cli(*self.upload_args("--bakes", "--yes"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("not a list of bakes", out)
+        self.assertEqual(len(f.completed), n)
 
     def test_a_pack_whose_bake_is_only_in_the_bucket(self):
         """Built once, uploaded, then left out of DIST: the pack still goes up when B2 has the bake."""

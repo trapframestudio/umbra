@@ -14,9 +14,11 @@ info) are skipped, so running it again only sends what changed. A big file
 whose upload was cut off resumes from the parts B2 already has.
 
 Order: every object first (with the volumes of Umbra Gore & Effects' prebaked
-bakes, umbra-effects/<fingerprint>/), then the bake manifests, then the packs (and
-CREDITS.md), then the channels last, so a player never sees a channel that
-points at something missing.
+bakes, umbra-effects/<fingerprint>/), then the bake manifests, then
+umbra-effects/index.json (the list of bakes that Umbra Effects Setup reads; written
+into DIST here, merged with the one already in the bucket: per fingerprint the
+newest manifest), then the packs (and CREDITS.md), then the channels last, so a
+player never sees a channel or a list that points at something missing.
 
 --bakes publishes only the prebaked bakes in DIST/umbra-effects (built with
 dev/pack_build.py --bake-only): no pack, no channel changes.
@@ -83,10 +85,12 @@ CONTENT_TYPES = {".zip": "application/zip", ".json": "application/json", ".txt":
                  ".md": "text/markdown; charset=utf-8"}
 RETRY_STATUS = {408, 429, 500, 502, 503, 504}
 NET_ERRORS = (OSError, http.client.HTTPException)     # urllib.error.URLError is an OSError
-PHASES = ("objects", "bakes", "packs", "channels")
+PHASES = ("objects", "bakes", "index", "packs", "channels")
 _OBJ = re.compile(r"^objects/([0-9a-f]{64})\.[A-Za-z0-9]+$")
 BAKES = packdef.BAKE_DIR + "/"   # umbra-effects/: Umbra Gore & Effects' prebaked bakes
 _BAKE = re.compile(r"^%s([0-9a-f]{32})/([0-9a-f]{64})\.(json|zip)$" % BAKES)
+# the list of bakes Umbra Effects Setup reads (Umbra Gore & Effects' tools/zgo_setup/prebaked.py)
+BAKE_INDEX = BAKES + "index.json"
 
 
 class Refuse(Exception):
@@ -184,8 +188,8 @@ class Item:
 
     @property
     def phase(self):
-        return {"object": "objects", "bake-volume": "objects", "bake": "bakes", "pack": "packs", "credits": "packs",
-                "channel": "channels"}[self.kind]
+        return {"object": "objects", "bake-volume": "objects", "bake": "bakes", "bake-index": "index",
+                "pack": "packs", "credits": "packs", "channel": "channels"}[self.kind]
 
     def content_type(self):
         return CONTENT_TYPES.get(os.path.splitext(self.rel)[1].lower(), "application/octet-stream")
@@ -225,11 +229,14 @@ class Local:
         self.objects = {}
         self.bakes = {}                # bake manifests and their volumes (umbra-effects/<fingerprint>/...)
         self.credits = None
+        self.index = None              # umbra-effects/index.json (add_index)
         self.unreferenced = 0
 
     def items(self):
         out = sorted(self.objects.values(), key=lambda i: i.rel)
         out += sorted(self.bakes.values(), key=lambda i: (i.kind == "bake", i.rel))
+        if self.index:
+            out.append(self.index)
         out += sorted(self.packs.values(), key=lambda i: i.rel)
         if self.credits:
             out.append(self.credits)
@@ -287,6 +294,75 @@ def add_bake(loc, ref, where):
                              % (vi.rel, os.path.getsize(vi.path), ref["path"], vi.size))
         elif old.size != v["size"]:
             raise Refuse("%s is listed with two different sizes" % v["path"])
+
+
+def bake_entries(loc):
+    """The list's entries for the bake manifests in DIST: per fingerprint the newest (by its
+    "made", then by the manifest file's date)."""
+    best = {}
+    for it in loc.bakes.values():
+        if it.kind != "bake" or not it.local:
+            continue
+        b = packdef.check_bake(packdef.loads(_read(it.path), it.rel))
+        e = {"path": it.rel, "sha256": it.sha256, "size": it.size, "fingerprint": b["fingerprint"],
+             "baker": b.get("baker", 0), "zgo": b.get("zgo", ""), "made": b.get("made", ""),
+             "models": b.get("models", 0), "download": sum(v["size"] for v in b["volumes"]),
+             "bytes": b.get("bytes", 0)}
+        key = (str(e["made"]), os.path.getmtime(it.path))
+        if e["fingerprint"] not in best or key > best[e["fingerprint"]][0]:
+            best[e["fingerprint"]] = (key, e)
+    return [e for _, e in best.values()]
+
+
+def bake_index(entries, remote=()):
+    """umbra-effects/index.json: entries, plus those of the bucket's list (remote) for other
+    fingerprints, newest first."""
+    mine = {e["fingerprint"] for e in entries}
+    keep = [e for e in remote or () if isinstance(e, dict) and _BAKE.match(str(e.get("path", "")))
+            and e.get("fingerprint") not in mine]
+    bakes = sorted(entries + keep, key=lambda e: (str(e.get("made", "")), e["path"]), reverse=True)
+    return (json.dumps({"format": 1, "kind": "umbra-effects-bakes", "bakes": bakes}, indent=1, sort_keys=True)
+            + "\n").encode("utf-8")
+
+
+def add_index(loc, remote=()):
+    """Write DIST's umbra-effects/index.json for the bakes in DIST (merged with remote, the
+    bucket's list) and add it to what goes up. Nothing when DIST has no bake manifest."""
+    entries = bake_entries(loc)
+    if not entries:
+        return None
+    blob = bake_index(entries, remote)
+    path = os.path.join(loc.dist, *BAKE_INDEX.split("/"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "wb") as f:
+        f.write(blob)
+    os.replace(path + ".tmp", path)
+    loc.index = Item(BAKE_INDEX, path, len(blob), "bake-index", packdef.sha256_bytes(blob))
+    return loc.index
+
+
+def remote_index(b2, bucket, prefix):
+    """The bake list already in the bucket ([] when there is none)."""
+    if not b2.download_url:
+        raise Refuse("B2 gave no download address, so the bucket's list of bakes can't be read; nothing uploaded")
+    url = "%s/file/%s/%s" % (b2.download_url, urllib.parse.quote(bucket), urllib.parse.quote(prefix + BAKE_INDEX))
+    req = urllib.request.Request(url, headers={"Authorization": b2.token, "Cache-Control": "no-cache"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return []
+        raise Refuse("could not read the bucket's list of bakes (%s %s); nothing uploaded" % (e.code, e.reason))
+    except OSError as e:
+        raise Refuse("could not read the bucket's list of bakes (%s); nothing uploaded" % scrub(str(e)))
+    try:
+        d = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        d = None
+    if not isinstance(d, dict) or d.get("kind") != "umbra-effects-bakes" or not isinstance(d.get("bakes"), list):
+        raise Refuse("the bucket's %s is not a list of bakes; nothing uploaded" % (prefix + BAKE_INDEX))
+    return d["bakes"]
 
 
 def scan_bakes(dist):
@@ -868,6 +944,8 @@ class Publisher:
             mans = [it for it in loc.bakes.values() if it.kind == "bake"]
             if phase == "bakes" and todo and vols:
                 self.must_be_there(vols, BAKES, "the bake manifests")
+            if phase == "index" and todo and mans:
+                self.must_be_there(mans, BAKES, "the list of bakes")
             if phase == "packs" and (todo or any(it.phase == "channels" for it in items)):
                 self.must_be_there(list(loc.objects.values()), "objects/", "the packs")
                 if mans:
@@ -1122,6 +1200,8 @@ def dry_run(a, loc, prefix):
         say("  channel %s -> %s (version %s)" % (it.channel, it.pack, it.version))
     for it in sorted((b for b in loc.bakes.values() if b.kind == "bake"), key=lambda b: b.rel):
         say("  bake %s" % it.rel)
+    if add_index(loc):
+        say("  %s: the bakes in %s (a real run merges in the bucket's own list)" % (BAKE_INDEX, loc.dist))
     items = [it for it in loc.items() if it.local]
     assign_parts(items, a.part_size or DEFAULT_PART, a.large_threshold)
     verify(items, a.threads, threading.Event(), parts=False)
@@ -1166,6 +1246,8 @@ def run(a):
         raise Refuse("this key may only write names starting with %r; use --prefix" % allowed_prefix)
     pub = Publisher(b2, bucket_id, prefix, a.threads)
     remote = pub.listing([BAKES] if a.bakes else ["objects/", BAKES, "packs/", "channels/", "CREDITS.md"])
+    if bake_entries(loc):
+        add_index(loc, remote_index(b2, a.bucket, prefix))
 
     missing = sorted(it.rel for it in list(loc.objects.values()) + list(loc.bakes.values())
                      if not it.local and not pub.present(it, remote))

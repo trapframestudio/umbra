@@ -111,6 +111,17 @@ installed Umbra Effects Setup whether it fits the player's mod list (--match);
 only then does it download the rest. When it does not fit, or the download
 fails, Umbra Effects Setup bakes for the player's mod list instead.
 
+Umbra Effects Setup on its own (a player who installed Umbra Gore & Effects from
+its release zip, no Umbra) finds the bakes through umbra-effects/index.json at
+the bucket's root, which dev/b2_upload.py writes after the manifests:
+
+    {"format": 1, "kind": "umbra-effects-bakes",
+     "bakes": [{"path": "umbra-effects/<fingerprint>/<sha256>.json", "sha256", "size",
+                "fingerprint", "baker", "zgo", "made", "models", "download", "bytes"}, ...]}
+
+newest first, one per fingerprint (Umbra Gore & Effects' tools/zgo_setup/prebaked.py
+reads it, and does the same --match test, download and relocation in-process).
+
 Relocation tokens (dev/pack_build.py writes them in place of the source
 machine's paths; layers.relocate() puts the player's in):
 
