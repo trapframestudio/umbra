@@ -87,6 +87,15 @@ license = "Apache-2.0"
 notes = "Umbra Gore & Effects ships parts of it, changed files marked, with its licence in LICENSE-PainterOfTheZone.txt. Painter credits xcvb (bvcx on ModDB) for Long Range Blood Decals and Dismemberment, Death Orchird for HFX (HollywoodFX) particles, exDeMODER, 0scoar and Kaiser, and its blood decal shader comes from Ascii1457's Screen Space Shaders."
 
 [[credit]]
+id = "hollywoodfx"
+mod = "HollywoodFX"
+version = "3.1.5"
+authors = ["DeathOrchid", "jdud", "AyyKyu", "Ghost-2142"]
+url = "https://www.moddb.com/mods/stalker-anomaly/addons/hollywoodfx3"
+role = "extra"
+notes = "Umbra ships its bullet impacts, muzzle effects and explosions, written out from its particles.xr as the loose particle files the game also reads, with the 40 of its textures they need; its blood effects and weapon configs are not used. HollywoodFX includes Cinematic VFX 3.7, and its page credits DeathOrchid, jdud, AyyKyu and Ghost-2142."
+
+[[credit]]
 id = "glossy-puddles"
 mod = "Glossy Puddles"
 version = "1.5"

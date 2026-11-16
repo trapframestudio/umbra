@@ -30,7 +30,7 @@ Planned: optional 4K character textures.
 | Folder | What is in it |
 |---|---|
 | `pack/` | `umbra.toml` (the pack definition), `credits.toml` (every author), `gamma/` (the G.A.M.M.A. lists the pack is pinned to) |
-| `dev/` | `pack_build.py` (builds a pack), `b2_upload.py` (publishes it), `deploy_mods.py` (puts `mods/` into the tested instance), `spawnmerge.py` (merges a map mod's `all.spawn` with G.A.M.M.A.'s), `build_installer/` (builds Umbra Setup for Linux and Windows; see its README) |
+| `dev/` | `pack_build.py` (builds a pack), `b2_upload.py` (publishes it), `deploy_mods.py` (puts `mods/` into the tested instance), `spawnmerge.py` (merges a map mod's `all.spawn` with G.A.M.M.A.'s), `hfx_layer.py` (HollywoodFX's firefight effects as loose particle files: the mod "HollywoodFX Impacts - Umbra" in the tested instance), `build_installer/` (builds Umbra Setup for Linux and Windows; see its README) |
 | `mods/` | Umbra's own files of the mods it makes (New Levels' patch, Stalkers Underground); see `mods/README.md` |
 | `installer/` | Umbra Setup: `umbra_setup.py` (the window and the command line) and the `umbra_installer` package |
 | `tests/` | `test_umbra.py`; run `python3 -m unittest -v tests/test_umbra.py` from this folder |
