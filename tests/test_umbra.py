@@ -967,6 +967,61 @@ class PackBuild(unittest.TestCase):
         with open(os.path.join(out, "CREDITS.md")) as f:
             self.assertIn("[Visual Mod](https://example.org/visual) by Someone", f.read())
 
+    def _layer_says(self, layer_id, line):
+        with open(self.toml) as f:
+            s = f.read()
+        key = 'id = "%s"\n' % layer_id
+        self.assertEqual(s.count(key), 1)
+        with open(self.toml, "w") as f:
+            f.write(s.replace(key, key + line + "\n"))
+
+    def _builder(self):
+        return pack_build.Builder(pack_build.load_def(self.toml), os.path.join(self.d, "dist"), 4096, 2, True)
+
+    def test_a_layer_can_keep_its_place(self):
+        # a map mod G.A.M.M.A.'s mods must win over stays at the bottom, where the tested profile has it
+        self._layer_says("visual", "keep_place = true")
+        b = self._builder()
+        with open(os.path.join(b.mo2, "profiles", b.profile, "modlist.txt"), "w") as f:
+            f.write("# MO2\r\n+Gore 1.6 (old)\r\n-Gore\r\n-Someone Elses Disabled\r\n+GAMMA base\r\n+Visual Mod\r\n")
+        self.assertEqual(b.modlist().decode().splitlines()[1:],
+                         ["+Gore", "+HD Faces", "-Someone Elses Disabled", "+GAMMA base", "+Visual Mod"])
+        # with nowhere to keep it, the build stops before packing anything
+        with open(os.path.join(b.mo2, "profiles", b.profile, "modlist.txt"), "w") as f:
+            f.write("+GAMMA base\r\n")
+        with self.assertRaises(pack_build.DefError):
+            b.build()
+        self.assertFalse(os.path.exists(os.path.join(self.d, "dist", "objects")))
+
+    def test_keep_place_is_for_a_mod_folder(self):
+        self._layer_says("engine", "keep_place = true")
+        with self.assertRaises(pack_build.DefError):
+            pack_build.load_def(self.toml)
+
+    def test_own_files_must_match_the_tested_copy(self):
+        # Umbra's own files of a mod live in the repo; the tested instance's copy is what's packed
+        own = os.path.join(self.d, "mods", "Visual Mod")
+        self._layer_says("visual", 'own_files = "../mods/Visual Mod"')
+        b = self._builder()
+        tested = os.path.join(b.mo2, "mods", "Visual Mod", "gamedata", "textures", "b.dds")
+        write(os.path.join(own, "gamedata", "textures", "b.dds"), b"B" * 5000)
+        L = next(x for x in b.d["layer"] if x["id"] == "visual")
+        self.assertIn("gamedata/textures/b.dds", [f[0] for f in b.layer_files(L)[0]])   # the same: fine
+        write(os.path.join(own, "gamedata", "textures", "b.dds"), b"edited")
+        write(os.path.join(own, "gamedata", "scripts", "new.script"), b"-- new")
+        with self.assertRaises(pack_build.DefError):
+            b.layer_files(L)
+        # deploying copies them over, and leaves the instance's other files alone
+        sys.path.insert(0, os.path.join(ROOT, "dev"))
+        import deploy_mods
+        self.assertEqual(len(deploy_mods.deploy(b.d, check=True, log=lambda *a: None)), 2)
+        self.assertEqual(len(deploy_mods.deploy(b.d, log=lambda *a: None)), 2)
+        with open(tested, "rb") as f:
+            self.assertEqual(f.read(), b"edited")
+        self.assertTrue(os.path.isfile(os.path.join(b.mo2, "mods", "Visual Mod", "gamedata", "textures", "a.dds")))
+        self.assertEqual(deploy_mods.deploy(b.d, check=True, log=lambda *a: None), [])
+        b.layer_files(L)
+
     def test_an_umbra_install_as_the_source(self):
         # an Umbra install can be the tested instance: Setup's own files in its mod folders aren't the mod
         mod = os.path.join(self.d, "installed")

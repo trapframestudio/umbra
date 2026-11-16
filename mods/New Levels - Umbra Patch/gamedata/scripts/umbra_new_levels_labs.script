@@ -1,0 +1,80 @@
+--[[
+	Umbra: New Levels' underground labs (Bunker A1, Collider).
+
+	The player: the labs stay open, for everyone. New Levels 0.53 turns the player back at the
+	Promzone entrances ("route unknown") until its Redemption storyline unlocks them
+	(dialogs_redemption_storyline.redemption_cancel_transition). That storyline is only for Loners
+	and Clear Sky, and nothing in 0.53 ever unlocks the bunker. The lock only checks the two infos
+	below, so they're given on every load: whatever the faction, start or story progress, the labs
+	are open and stay open. The storyline itself doesn't read them otherwise.
+
+	Stalker squads: the Collider opens to them (umbra_new_levels_collider_open, read by the
+	Collider's smarts in mod_simulation_objects_props_umbra_new_levels.ltx) once the storyline's
+	Collider part is done (redemption_6_stage_6: the collider reset), or from the start when this
+	player can't get the storyline. The info stays once given.
+
+	The map: the labs' transitions go on the PDA map (as discovered routes) once the player is in
+	Promzone or a lab.
+]]
+
+local unlock_infos = { "redemption_6_unlock_bunker_route", "redemption_6_unlock_collider_route" }
+local collider_open = "umbra_new_levels_collider_open"
+local collider_done = { redemption_6_stage_6 = true, redemption_storyline_finished = true }
+local lab_area = { promzona = true, bunker_a1 = true, collaider = true }
+local lab_routes = { { "prom", "bunk" }, { "prom", "col" }, { "bunk", "col" } }
+
+local function give(info)
+	if not has_alife_info(info) then
+		db.actor:give_info_portion(info)
+	end
+end
+
+local function storyline_possible()
+	local r = dialogs_redemption_storyline
+	return r and r.redemption_faction_precondition and r.redemption_faction_precondition() and true or false
+end
+
+local function check_collider()
+	if has_alife_info(collider_open) then
+		return
+	end
+	for info in pairs(collider_done) do
+		if has_alife_info(info) then
+			return give(collider_open)
+		end
+	end
+	if not storyline_possible() then
+		give(collider_open)
+	end
+end
+
+local function open_lab_routes()
+	-- after New Levels' own first update has added the labs to txr_routes
+	if txr_routes and txr_routes.open_route then
+		for _, r in ipairs(lab_routes) do
+			txr_routes.open_route(r[1], r[2])
+		end
+	end
+	return true
+end
+
+local function actor_on_first_update()
+	for _, info in ipairs(unlock_infos) do
+		give(info)
+	end
+	check_collider()
+	if lab_area[level.name()] then
+		CreateTimeEvent("umbra_new_levels_labs", "open_routes", 2, open_lab_routes)
+	end
+end
+
+local function actor_on_info_callback(actor, info)
+	if collider_done[info] then
+		give(collider_open)
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+	RegisterScriptCallback("actor_on_info_callback", actor_on_info_callback)
+end

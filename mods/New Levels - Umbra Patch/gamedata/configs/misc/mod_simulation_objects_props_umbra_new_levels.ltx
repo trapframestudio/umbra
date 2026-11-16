@@ -1,0 +1,38 @@
+; Umbra: New Levels' labs are open to stalker squads of every faction. Bunker A1 from the start
+; (New Levels never closed it). The Collider once its part of the Redemption storyline is done,
+; or from the start when this player can't get that storyline (umbra_new_levels_labs.script
+; gives umbra_new_levels_collider_open). New Levels waits for redemption_storyline_finished,
+; which 0.53 never gives. Mutants keep their lairs; each smart has room for one more squad
+; (mod_<smart>_umbra.ltx next to its config).
+
+![bunker_1]
+sim_avail = true
+all_stalker = 1
+
+![bunker_2]
+sim_avail = true
+all_stalker = 1
+
+![collaider_1]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1
+
+![collaider_2]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1
+
+![collaider_3]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1
+
+![collaider_4]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1
+
+![collaider_5]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1
+
+![collaider_6]
+sim_avail = {+umbra_new_levels_collider_open} true, false
+all_stalker = 1

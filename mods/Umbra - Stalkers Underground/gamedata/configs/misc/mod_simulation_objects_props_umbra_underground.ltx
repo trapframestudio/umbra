@@ -1,0 +1,166 @@
+; Umbra: stalker squads of every faction can go into the Zone's labs and underground levels, so
+; you can run into them down there. Anomaly opens most of these smarts to squads only after the
+; player's own story progress (and mostly to Loners only); here most are open from the start, and
+; the ones that hold a story scene open once that scene is over:
+; - X-18's scripted rooms (dar_poltergeist_*) once their story poltergeists are dead: the ring
+;   room after its two waves (they start at the first code lock); the two teleport rooms have
+;   story poltergeists only in survival mode, so in other games they're open from the start.
+;   Its military scout smart once that squad is killed.
+; - X-10 and X-16 once their psi source is off; Warlab once its generators are off (all of them
+;   from the start of a game without the story).
+; - The story bandits' and soldiers' own smarts in Agroprom Underground, as before, once those
+;   squads are dead.
+; Story squads keep their scripted jobs (exclusive, by squad or NPC name): visitors can't take
+; them. Population caps are G.A.M.M.A.'s (2 or more) or raised to 2 next to the smart's config.
+
+; --- Jupiter Underground (the Pripyat underpass)
+
+![pas_b400_canalisation]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_downstairs]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_elevator]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_fake]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_hall]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_track]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_tunnel]
+sim_avail = true
+all_stalker = 1
+
+![pas_b400_way]
+sim_avail = true
+all_stalker = 1
+
+; --- Agroprom Underground
+
+![agr_u_bloodsucker]
+sim_avail = true
+all_stalker = 1
+
+![agr_u_bloodsucker_2]
+sim_avail = true
+all_stalker = 1
+
+![agr_u_monsters]
+sim_avail = true
+all_stalker = 1
+
+![agr_u_bandits]
+all_stalker = 1
+
+![agr_u_soldiers]
+all_stalker = 1
+
+; --- Lab X-18 (Dark Valley)
+
+![dar_poltergeist_ring]
+sim_avail = {+dar_ring_spawn2 !squad_exist(dar_poltergeist_ring_squad_2)} true, false
+all_stalker = 1
+
+![dar_poltergeist_tele]
+sim_avail = {!squad_exist(dar_poltergeist_tele_squad)} true, false
+all_stalker = 1
+
+![dar_poltergeist_tele_round]
+sim_avail = {!squad_exist(dar_poltergeist_tele_round_squad)} true, false
+all_stalker = 1
+
+![dar_military_scout]
+sim_avail = {+dar_military_scout_squad_killed} true, false
+all_stalker = 1
+
+![dar_angar]
+sim_avail = true
+all_stalker = 1
+
+![dar_smart_snork]
+sim_avail = true
+all_stalker = 1
+
+![dar_control_poltergeist]
+sim_avail = true
+all_stalker = 1
+
+; --- Lab X-16 (Yantar): once the Miracle Machine is off
+
+![x162_st_burer]
+sim_avail = {+yan_labx16_switcher_primary_off} true, false
+all_stalker = 1
+
+![x162_st_gigant]
+sim_avail = {+yan_labx16_switcher_primary_off} true, false
+all_stalker = 1
+
+![x162_st_poltergeist]
+sim_avail = {+yan_labx16_switcher_primary_off} true, false
+all_stalker = 1
+
+![x162_st_snork]
+sim_avail = {+yan_labx16_switcher_primary_off} true, false
+all_stalker = 1
+
+; --- Lab X-10 (Radar): once the Brain Scorcher is off, as before
+
+![bun_krovosos_nest]
+sim_avail = {+bar_deactivate_radar_done} true, false
+all_stalker = 1
+
+![bun2_st_bloodsucker]
+all_stalker = 1
+
+![bun2_tushkano_lair]
+all_stalker = 1
+
+; --- Sarcophagus and Monolith control (CNPP)
+
+![sar_monolith_bloodsuckers]
+sim_avail = true
+all_stalker = 1
+
+![sar_monolith_general]
+sim_avail = true
+all_stalker = 1
+
+![sar_monolith_poltergeists]
+sim_avail = true
+all_stalker = 1
+
+![sar_monolith_sklad]
+sim_avail = true
+all_stalker = 1
+
+![sar_monolith_guard]
+sim_avail = true
+all_stalker = 1
+
+![sar_monolith_zombies]
+sim_avail = true
+all_stalker = 1
+
+; --- Lab X-8 (Pripyat)
+
+![lx8_smart_terrain]
+sim_avail = true
+all_stalker = 1
+
+; --- Warlab: once the generators are off
+
+![warlab_common_consciousness_smart_terrain]
+sim_avail = {+warlab_deactivate_generators_done} true, false
+all_stalker = 1

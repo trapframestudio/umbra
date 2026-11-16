@@ -177,7 +177,36 @@ url = "https://www.moddb.com/mods/stalker-anomaly/addons/custom-base-safe-havens
 role = "extra"
 notes = "Made with Claude AI, as its own credits say. Needs MCM, YACS Better Campfire Saves and Hideout Furniture, all in G.A.M.M.A."
 
+# The page and author were found through search results only (ModDB turns programs away):
+# check both on the page before a public release.
+[[credit]]
+id = "new-levels"
+mod = "New Levels"
+version = "0.53"
+authors = ["Longreed"]
+url = "https://www.moddb.com/mods/stalker-anomaly/addons/promzone-level"
+role = "extra"
+notes = "Promzone, Grimwood, the town of Yuzhniy, Bunker A1 and the Collider, with the Redemption storyline. Umbra merges its spawn, dialogs and task guide with G.A.M.M.A.'s (Umbra's New Levels patch)."
+
+[[credit]]
+id = "new-levels-dao"
+mod = "DAO New Levels compatibility patch"
+version = "1.1"
+authors = []
+url = ""
+role = "extra"
+notes = "author unknown: the archive (DAO_New_Levels_0.51_compaibility_patch_v1.1.7z) has no readme or credits, and no page was found for it. It gives Dynamic Anomalies Overhaul (Demonized, in G.A.M.M.A.) its anomaly regions on New Levels' maps; Umbra leaves out its promzona.ltx, since DAO's own is newer."
+
 # ====================================================================== G.A.M.M.A. options Umbra turns on
+
+[[credit]]
+id = "high-res-pda-maps"
+mod = "High Res PDA Maps"
+version = "3"
+authors = ["Bazingarrey"]
+url = "https://www.moddb.com/mods/stalker-anomaly/addons/high-resolution-maps"
+role = "gamma-optional"
+notes = "The archive's New Levels Upscaled Maps option, for New Levels' maps (G.A.M.M.A. installs the rest of this addon)."
 
 [[credit]]
 id = "overheat-gunsmoke"
@@ -367,7 +396,7 @@ mod = "Umbra"
 authors = ["the Umbra team"]
 url = ""
 role = "extra"
-notes = "Umbra's own mod. Its MCM values are G.A.M.M.A.'s, as tested for Umbra. Its look (splashes, fonts, UI repaint) is painted with textures from S.T.A.L.K.E.R. Anomaly's base game (GSC Game World's assets) and changes only what it repaints, on top of G.A.M.M.A.'s UI. The menu's placeholder loop is CS Eden's Dead City picture from G.A.M.M.A.'s loading screens addon; its version line and hryvnia lines change single strings of G.A.M.M.A.'s text (G.A.M.M.A. Massive Text Overhaul Project, SageDaHerb and Dr.Pr1nkos). The UI fonts are drawn from the Tektur and Play typefaces (credited below), with their licences in the mod's licenses folder."
+notes = "Umbra's own mod. Its MCM values are G.A.M.M.A.'s, as tested for Umbra. Its look (splashes, fonts, UI repaint) is painted with textures from S.T.A.L.K.E.R. Anomaly's base game (GSC Game World's assets) and changes only what it repaints, on top of G.A.M.M.A.'s UI. The menu's placeholder loop is CS Eden's Dead City picture from G.A.M.M.A.'s loading screens addon; its version line and hryvnia lines change single strings of G.A.M.M.A.'s text (G.A.M.M.A. Massive Text Overhaul Project, SageDaHerb and Dr.Pr1nkos). The UI fonts are drawn from the Tektur and Play typefaces (credited below), with their licences in the mod's licenses folder. Umbra's New Levels patch merges New Levels with G.A.M.M.A. (its spawn with G.A.M.M.A.'s, which carries New Storylines' Hidden Threat storyline, and its dialogs and task guide with G.A.M.M.A.'s), and Stalkers Underground lets stalker squads of every faction explore the labs."
 
 [[credit]]
 id = "font-tektur"

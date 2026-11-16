@@ -4,7 +4,7 @@
 
 [pack]
 name = "Umbra"
-version = "0.1.0"
+version = "0.2.0"
 channel = "stable"        # stable | testing
 
 [hosting]
@@ -127,6 +127,11 @@ players_download = true
 # was = the folder's earlier names: Setup renames a folder an earlier Umbra
 # installed (keeping its place and on/off in every profile) instead of
 # installing it again beside the old one. Keep old names here for good.
+# keep_place = true: the layer stays where the tested profile lists it, instead
+# of going on top with the others (a mod G.A.M.M.A.'s mods must win over).
+# own_files = a folder in this repo (mods/) with Umbra's own files of the mod:
+# the build refuses to pack the instance's folder while they differ
+# (dev/deploy_mods.py puts them there).
 # credit = the id in credits.toml.
 
 # xrRazom first: its fomod says to give it the highest priority (first = true
@@ -262,6 +267,46 @@ credit = "atmospherics"
 id = "safe-haven"
 folder = "Custom Base Safe Haven"
 credit = "safe-haven"
+
+# Umbra's patch for New Levels (below): the merged all.spawn (G.A.M.M.A.'s, with New
+# Storylines' Hidden Threat, plus New Levels'), dialogs.xml and tasks_guide.script, and its
+# labs open to everyone. See mods/README.md.
+[[layer]]
+id = "new-levels-patch"
+folder = "New Levels - Umbra Patch"
+own_files = "../mods/New Levels - Umbra Patch"
+credit = "umbra"
+
+# Stalker squads of every faction explore the labs and underground levels (mods/README.md).
+[[layer]]
+id = "stalkers-underground"
+folder = "Umbra - Stalkers Underground"
+own_files = "../mods/Umbra - Stalkers Underground"
+credit = "umbra"
+
+# New Levels and its two add-ons stay at the bottom of the load order, where the tested
+# profile has them: G.A.M.M.A.'s mods win over their files. New Levels' own all.spawn,
+# dialogs.xml and tasks_guide.script are hidden there (*.mohidden, so never packed): the patch
+# above has the merged ones. A new game is needed (the spawn changed).
+[[layer]]
+id = "new-levels-pda-maps"
+folder = "New Levels - High Res PDA Maps"
+keep_place = true
+url = "https://www.moddb.com/mods/stalker-anomaly/addons/high-resolution-maps"
+credit = "high-res-pda-maps"
+
+[[layer]]
+id = "new-levels-dao"
+folder = "New Levels - DAO Patch 1.1"
+keep_place = true
+credit = "new-levels-dao"
+
+[[layer]]
+id = "new-levels"
+folder = "New Levels 0.53"
+keep_place = true
+url = "https://www.moddb.com/mods/stalker-anomaly/addons/promzone-level"
+credit = "new-levels"
 
 # xrRazom's engine: the archive's Anomaly folder (bin AND gamedata) goes into the
 # game folder (the originals are backed up), as its fomod tells players to do.
