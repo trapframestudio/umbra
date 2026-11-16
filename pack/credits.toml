@@ -177,8 +177,6 @@ url = "https://www.moddb.com/mods/stalker-anomaly/addons/custom-base-safe-havens
 role = "extra"
 notes = "Made with Claude AI, as its own credits say. Needs MCM, YACS Better Campfire Saves and Hideout Furniture, all in G.A.M.M.A."
 
-# The page and author were found through search results only (ModDB turns programs away):
-# check both on the page before a public release.
 [[credit]]
 id = "new-levels"
 mod = "New Levels"
