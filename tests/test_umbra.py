@@ -1363,6 +1363,30 @@ class Install(unittest.TestCase):
         self.assertTrue(os.path.exists(lost))
         self.assertIn(("info", "Installed Visual Mod"), logs)
 
+    def test_a_development_install_is_left_alone(self):
+        # the install Umbra's pack is built from: Setup and the launcher refuse to update, repair or change it
+        t_mo2, _ = self.target("dev")
+        run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
+        work = os.path.join(t_mo2, ".umbra")
+        self.assertFalse(launcher.Install(work).dev)
+        path = os.path.join(work, "state.json")
+        with open(path) as f:
+            state = json.load(f)
+        state["dev"] = True
+        with open(path, "w") as f:
+            json.dump(state, f)
+        with open(path, "rb") as f:
+            before = f.read()
+        inst = launcher.Install(work)
+        self.assertTrue(inst.dev)
+        for kw in ({}, {"repair": True}, {"choices": []}):        # update, repair, a change of picks
+            plan = install.Installer(inst.options(**kw)).plan()
+            self.assertEqual(plan.problems, [install.DEV_INSTALL])
+            with self.assertRaises(RuntimeError):
+                install.Installer(inst.options(**kw)).run(plan)
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), before)
+
     def test_an_open_launcher_is_not_replaced(self):
         """A running built program reads its own file, so Setup waits for the launcher to close."""
         t_mo2, _ = self.target("busy-launcher")

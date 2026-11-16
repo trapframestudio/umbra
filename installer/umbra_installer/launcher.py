@@ -178,6 +178,11 @@ class Install:
     def found(self):
         return bool(self.mo2) and os.path.isfile(os.path.join(self.mo2, "ModOrganizer.exe"))
 
+    @property
+    def dev(self):
+        """Umbra's development install (state "dev"): no updates, repair or option changes here."""
+        return bool(self.state.get("dev"))
+
     def save_pack(self, pack):
         """The manifest of the installed version, when the launcher had to fetch it."""
         self.pack = pack

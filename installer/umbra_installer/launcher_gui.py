@@ -206,6 +206,11 @@ class Window:
             self.b_play.state(["disabled"])
         if self.b_apply:
             self.b_apply.state(["!disabled"] if changed else ["disabled"])
+        if self.inst.dev:
+            # the install the pack is built from: Setup refuses to change it (install.DEV_INSTALL)
+            self.b_update.state(["disabled"])
+            if self.b_apply:
+                self.b_apply.state(["disabled"])
         if self.pending:
             return
         self.bar.pack_forget()
@@ -215,12 +220,12 @@ class Window:
             self.say("Mod Organizer 2's Run list has no entry that starts Anomaly's engine "
                      "(bin/AnomalyDX11.exe), so Play can't start the game. Open Mod Organizer 2 to check it.",
                      "Bad.TLabel")
-        elif changed:
+        elif changed and not self.inst.dev:
             n = self.inst.download_for(self.picks())
             self.say("Apply installs the change; it downloads about %s." % packdef.human(n) if n else
                      "Apply installs the change. Everything it needs is here already, so it takes a moment.")
         elif not self.status.cget("text") or self.status.cget("style") == "Bad.TLabel":
-            self.say("")
+            self.say(install.DEV_INSTALL if self.inst.dev else "")
 
     def busy(self, text):
         self._lock()

@@ -39,6 +39,10 @@ STEPS = [("pack", "Reading the pack", 1), ("origins", "Getting mods from their a
          ("steam", "Adding the Steam shortcuts", 1)]
 LOGS_KEPT = 20
 RUNTIME_KIND = "windows" if os.name == "nt" else "prefix"      # runtime.py
+# An install whose state.json says "dev": true is the one Umbra's pack is built from: Setup and the
+# launcher never update, repair or change it (only Play and Mod Organizer 2 work there)
+DEV_INSTALL = ("This is Umbra's development install: the pack is built from it, so Setup doesn't update, "
+               "repair or change it. Change its mods by hand (Umbra's own: dev/deploy_mods.py).")
 
 # The launcher is this same program under another name (launcher.py says how Steam starts it)
 LAUNCHER = "Umbra Launcher.exe" if os.name == "nt" else "umbra-launcher"
@@ -282,6 +286,11 @@ class Installer:
         p = Plan()
         P = self.paths()
         p.mo2, p.anomaly, p.work = P["mo2"], P["anomaly"], P["work"]
+        if self._load_state(P).get("dev"):
+            # the install Umbra's pack is built from: an update, repair or change of picks would put
+            # the pack's copies over the work being tested there (README, "A development install")
+            p.problems.append(DEV_INSTALL)
+            return p
         if not self.o.source:
             p.problems.append("This installer has no download address built in; start it with --source URL.")
             return p

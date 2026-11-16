@@ -436,6 +436,15 @@ How it starts MO2 differs by system:
   outside Steam, it can't play, and says so. If the launch options are
   removed, Steam starts MO2 directly, as before.
 
+### A development install
+
+The install the pack is built from (`[source]` in `pack/umbra.toml`) holds work being tested, so
+Setup must never put the pack's copies over it. Mark it with `"dev": true` in its
+`.umbra/state.json`: Setup then refuses to update, repair or change it, whether started by hand or
+from the launcher, and the launcher greys out Check for updates and Apply and says why. Play and
+Open Mod Organizer 2 work as usual. Its mods change by hand; Umbra's own with
+`dev/deploy_mods.py` (see `mods/README.md`).
+
 ## Privacy
 
 Nothing published may contain a machine's paths or an account name.
