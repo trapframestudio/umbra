@@ -711,7 +711,14 @@ class Installer:
             tail = [x for x in lines if x.strip()][-4:]
             raise prebake.BakeError("Umbra Effects Setup could not bake the body models (exit %s): %s"
                                     % (code, " | ".join(tail) or "no output"))
-        # the bake is in: breakable props and kid mode for particles depend on the mod list too
+        # the bake is in. Made before Umbra Gore & Effects 1.8.2 (prebaked or not), its ~80,000 small
+        # parts are loose files, which the game reads one by one at every start: into a few archives
+        if res.get("pack") == "needed":
+            code, _, _ = zgo(["--pack", "--yes"], "Packing the bake", 0.85, 0.9)
+            self.log("Packed Umbra Gore & Effects' bake into a few archives, so the game starts faster" if code == 0
+                     else "Umbra Effects Setup could not pack the bake (exit %s); it works, but the game starts "
+                     "slower" % code, "info" if code == 0 else "warn")
+        # breakable props and kid mode for particles depend on the mod list too
         if res.get("props") not in (None, "ok", "none"):
             code, _, _ = zgo(["--props", "--yes"], "Cutting the props", 0.9, 1.0)
             self.log("Cut the breakable props for your mod list" if code == 0 else

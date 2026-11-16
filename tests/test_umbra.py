@@ -62,11 +62,23 @@ def body_state():
     if not all(os.path.isfile(os.path.join(mod, *f.split("/"))) for f in rep.get("files", [])):
         return "broken"
     return "stale" if os.environ.get("FAKE_ZGO_STALE") else "ok"
+def pack_state():                  # FAKE_ZGO_LOOSE: the bake's small parts are loose (before 1.8.2)
+    try:
+        rep = json.load(open(rep_p))
+    except (OSError, ValueError):
+        return "ok"
+    return "needed" if os.environ.get("FAKE_ZGO_LOOSE") and not rep.get("packed") else "ok"
 if "--check" in a:
     st = body_state()
     say("Your bake is up to date." if st == "ok" else "Not baked yet.")
-    say("RESULT body=%s props=%s kid=ok" % (st, os.environ.get("FAKE_ZGO_PROPS", "none")))
-    sys.exit(0 if st == "ok" else 1)
+    say("RESULT body=%s props=%s kid=ok pack=%s" % (st, os.environ.get("FAKE_ZGO_PROPS", "none"), pack_state()))
+    sys.exit(0 if st == "ok" and pack_state() == "ok" else 1)
+if "--pack" in a:
+    rep = json.load(open(rep_p))
+    rep["packed"] = {"db/mods/zgo_bake_pieces_00.db0": []}
+    json.dump(rep, open(rep_p, "w"))
+    say("Packed 3 loose files into archives.")
+    sys.exit(0)
 if "--match" in a:
     rep = json.load(open(os.path.join(arg("--match"), "zgo_bake_report.json")))
     assert rep["profile"] == arg("--profile"), rep["profile"]           # Setup put the names in
@@ -1651,6 +1663,18 @@ class Prebake(unittest.TestCase):
         st2, _ = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
         self.assertEqual(self.asked(), ["--check"])
         self.assertEqual(st2["bake"]["how"], "up to date")
+
+    def test_a_loose_bake_is_packed(self):
+        """Umbra Effects Setup packs a bake's ~80,000 small parts into a few archives since 1.8.2;
+        a prebaked bake made before that arrives loose: Umbra Setup asks for --pack once it is in."""
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_LOOSE": "1"}):
+            t_mo2, st, logs = self.install("loose")
+            self.assertEqual(self.asked(), ["--check", "--match", "--check", "--pack"])
+            self.assertEqual(st["bake"]["how"], "prebaked")
+            self.assertTrue(any("into a few archives" in m for _, m in logs), logs)
+            st2, _ = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
+            self.assertEqual(self.asked(), ["--check"])                      # packed: nothing more to do
+            self.assertEqual(st2["bake"]["how"], "up to date")
 
     def test_another_mod_list_is_baked_here(self):
         with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no"}):
