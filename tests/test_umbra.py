@@ -967,6 +967,20 @@ class PackBuild(unittest.TestCase):
         with open(os.path.join(out, "CREDITS.md")) as f:
             self.assertIn("[Visual Mod](https://example.org/visual) by Someone", f.read())
 
+    def test_an_umbra_install_as_the_source(self):
+        # an Umbra install can be the tested instance: Setup's own files in its mod folders aren't the mod
+        mod = os.path.join(self.d, "installed")
+        for rel in ("gamedata/a.ltx", "gamedata/configs/axr_options.ltx",
+                    "gamedata/configs/axr_options.ltx" + layers.NEW_SUFFIX, layers.MARKER,
+                    "meta.ini", "gamedata/sub/" + layers.MARKER):
+            p = os.path.join(mod, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as f:
+                f.write("x")
+        self.assertEqual([r for r, _ in pack_build.walk_folder(mod)],
+                         ["gamedata/a.ltx", "gamedata/configs/axr_options.ltx",
+                          "gamedata/sub/" + layers.MARKER])  # only the top-level marker is Setup's
+
     def test_the_bake_alone(self):
         out = os.path.join(self.d, "bakeonly")
         b = pack_build.Builder(pack_build.load_def(self.toml), out, 4096, 2, False)

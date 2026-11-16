@@ -372,7 +372,8 @@ def clean_meta(src_meta, version=None):
 # ---------------------------------------------------------------- file lists
 
 def walk_folder(folder, zgo=False):
-    """[(rel, abspath)] of a mod folder, sorted; meta.ini and hidden files left out."""
+    """[(rel, abspath)] of a mod folder, sorted; meta.ini, hidden files and Setup's own
+    files (an Umbra install's layer marker and .umbra-new copies) left out."""
     out = []
     for dp, dns, fns in os.walk(folder):
         rel_dir = os.path.relpath(dp, folder).replace(os.sep, "/")
@@ -384,6 +385,10 @@ def walk_folder(folder, zgo=False):
         for fn in sorted(fns):
             rel = rel_dir + fn
             if rel == "meta.ini" or fn.endswith(".mohidden"):
+                continue
+            # what Setup itself writes in an Umbra install (the layer's marker, Umbra's newer copy of
+            # a preserved file): the source instance may be an Umbra install, and these aren't the mod
+            if rel == inst_layers.MARKER or fn.endswith(inst_layers.NEW_SUFFIX):
                 continue
             if zgo and (fn.startswith(".") or fn.endswith((".pyc", ".part"))):
                 continue
