@@ -664,11 +664,17 @@ class Installer:
         toks = layers.tokens(P["mo2"], P["anomaly"], zgo_cache_dir(), under_wine=(os.name != "nt"),
                              profile=profile, zgo_folder=folder)
 
+        # the "bake" step's bar over all of it: it never goes back, whichever way it goes (_bake_with)
+        bar = prebake.Bar(self.progress, "bake")
+
         def zgo(more, what, lo=0.0, hi=1.0):
+            show = bar.part(lo, hi)
+            job = "bake" if "--bake" in more else more[0]
+
             def on_line(line):
-                f = prebake.progress_of(line)
+                f = prebake.progress_of(line, job)
                 if f is not None:
-                    self.progress("bake", lo + (hi - lo) * f, "%s: %s" % (what, line.strip()[:100]))
+                    show(f, "%s: %s" % (what, line.strip()[:100]))
             # a bake is minutes on a fast machine; the limits only stop one that hangs
             code, lines = prebake.run(prog, args + more, work, env, on_line, self.cancelled,
                                       timeout=(4 if "--bake" in more else 1) * 3600)
@@ -677,65 +683,120 @@ class Installer:
             return code, lines, prebake.parse_result(lines)
 
         try:
-            return self._bake_with(L, zdir, mods_dir, fetcher, toks, zgo)
+            return self._bake_with(L, zdir, mods_dir, fetcher, toks, zgo, bar)
         except prebake.BakeError as e:
             self.log("%s. Umbra Gore & Effects works without its body models (cut limbs look rougher); run Umbra "
                      "Effects Setup from its folder (tools/zgo_setup) to bake them." % e, "warn")
             return {"how": "failed"}
 
-    def _bake_with(self, L, zdir, mods_dir, fetcher, toks, zgo):
-        self.progress("bake", 0.0, "checking the body models")
-        _, _, res = zgo(["--check"], "Checking")
+    def _bake_with(self, L, zdir, mods_dir, fetcher, toks, zgo, bar):
+        # the bar: the check 0-0.02; the prebaked bake 0.02-0.9 (_prebaked); a bake here to 1.0 (from
+        # where the bar is); packing, the props and kid mode share what is left after the first two
+        bar(0.0, "checking the body models")
+        _, lines, res = zgo(["--check"], "Checking", 0.0, 0.02)
         how, fp = None, None
-        if res.get("body") in ("ok", "order"):
+        if res.get("body") in prebake.FITS:
             how = "up to date"
             self.log("Umbra Gore & Effects' body models are in place and fit your mod list")
         else:
-            fp = self._prebaked(L, zdir, mods_dir, fetcher, toks, zgo)
-            if fp:
-                _, _, res = zgo(["--check"], "Checking")
-                if res.get("body") in ("ok", "order"):
+            fp = self._prebaked(L, zdir, mods_dir, fetcher, toks, zgo, bar)
+            if fp:                          # (it is in place now)
+                self._adopt_dates(zgo)
+                bar(0.88, "checking the body models")
+                _, lines, res = zgo(["--check"], "Checking", 0.88, 0.9)
+                if res.get("body") in prebake.FITS:
                     how = "prebaked"
                 else:
                     self.log("Umbra Effects Setup does not accept the prebaked body models (%s); baking them here "
                              "instead" % (res.get("body") or "no answer"), "warn")
         if how is None:
-            self.log("Baking Umbra Gore & Effects' body models for your mod list: a few minutes, using every CPU core")
-            code, lines, res = zgo(["--bake", "--yes"], "Baking", 0.05, 1.0)
-            if code == 0:
-                how = "baked here"
-                for line in lines:
-                    if line.startswith("Baked "):
-                        self.log(line.strip())
-                return {"how": how, "fingerprint": fp}
-            tail = [x for x in lines if x.strip()][-4:]
-            raise prebake.BakeError("Umbra Effects Setup could not bake the body models (exit %s): %s"
-                                    % (code, " | ".join(tail) or "no output"))
+            return self._bake_here(zgo, fp)
+        if res.get("body") == "unused":
+            self._unused(lines)
         # the bake is in. Made before Umbra Gore & Effects 1.8.2 (prebaked or not), its ~80,000 small
-        # parts are loose files, which the game reads one by one at every start: into a few archives
-        if res.get("pack") == "needed":
-            code, _, _ = zgo(["--pack", "--yes"], "Packing the bake", 0.85, 0.9)
+        # parts are loose files, which the game reads one by one at every start: into a few archives.
+        # Breakable props and kid mode for particles depend on the mod list too
+        todo = [(w, x) for w, x, needed in (
+            (8, "pack", res.get("pack") == "needed"), (3, "props", res.get("props") not in (None, "ok", "none")),
+            (1, "kid", res.get("kid") not in (None, "ok", "off", "none"))) if needed]
+        at, left, spans = bar.at, sum(w for w, _ in todo), {}
+        for w, x in todo:
+            spans[x] = (at, at + (1.0 - bar.at) * w / left)
+            at = spans[x][1]
+        if "pack" in spans:
+            code, _, _ = zgo(["--pack", "--yes"], "Packing the bake", *spans["pack"])
             self.log("Packed Umbra Gore & Effects' bake into a few archives, so the game starts faster" if code == 0
                      else "Umbra Effects Setup could not pack the bake (exit %s); it works, but the game starts "
                      "slower" % code, "info" if code == 0 else "warn")
-        # breakable props and kid mode for particles depend on the mod list too
-        if res.get("props") not in (None, "ok", "none"):
-            code, _, _ = zgo(["--props", "--yes"], "Cutting the props", 0.9, 1.0)
+        if "props" in spans:
+            code, _, _ = zgo(["--props", "--yes"], "Cutting the props", *spans["props"])
             self.log("Cut the breakable props for your mod list" if code == 0 else
                      "Umbra Effects Setup could not cut the breakable props (exit %s)" % code,
                      "info" if code == 0 else "warn")
-        if res.get("kid") not in (None, "ok", "off", "none"):
-            zgo(["--kid-particles-apply", "--yes"], "Kid mode for particles")
+        if "kid" in spans:
+            zgo(["--kid-particles-apply", "--yes"], "Kid mode for particles", *spans["kid"])
         return {"how": how, "fingerprint": fp}
 
-    def _prebaked(self, L, zdir, mods_dir, fetcher, toks, zgo):
+    def _bake_here(self, zgo, fp):
+        """Umbra Effects Setup bakes for this mod list on this machine."""
+        self.log("Baking Umbra Gore & Effects' body models for your mod list: a few minutes, using every CPU core")
+        # --no-download: Setup has decided about the prebaked bake already. Without it, Umbra Effects Setup
+        # (1.8.1 on) gets that bake itself when it fits: a second download of all of it
+        code, lines, res = zgo(["--bake", "--yes", "--no-download"], "Baking", 0.05, 1.0)
+        if prebake.unknown_option(code, lines):     # from before 1.8.1, which never downloads
+            self.log("This Umbra Effects Setup is older than 1.8.1 and does not know --no-download (it never "
+                     "downloads); baking without it")
+            code, lines, res = zgo(["--bake", "--yes"], "Baking", 0.05, 1.0)
+        if code == 0:
+            said = [x.strip() for x in lines if x.startswith(("Baked ", "Put the ready-made bake in place"))]
+            for line in said:
+                self.log(line)
+            got = any(x.startswith("Put the ready-made bake in place") for x in said)
+            return {"how": "prebaked" if got else "baked here", "fingerprint": fp}
+        tail = [x for x in lines if x.strip()][-4:]
+        raise prebake.BakeError("Umbra Effects Setup could not bake the body models (exit %s): %s"
+                                % (code, " | ".join(tail) or "no output"))
+
+    def _unused(self, lines):
+        """--check: body=unused (1.8.3): the bake is right, but the game doesn't load it. Not a reason
+        to bake again; the player has to change something in MO2 (its words say what)."""
+        why = []
+        for i, x in enumerate(lines):
+            if "doesn't use it" in x:
+                why = [y.strip() for y in lines[i + 1:i + 3] if y.strip() and not y.startswith("RESULT ")][:1]
+                break
+        self.log("Umbra Gore & Effects' body models are in place, but the game won't load them: %s"
+                 % (why[0] if why else "Umbra Gore & Effects is not an enabled mod of the MO2 profile"), "warn")
+
+    def _adopt_dates(self, zgo):
+        """The prebaked bake's report has the dates of the model archives and models of the machine
+        that made it, and Umbra Effects Setup compares by date: wherever this machine's differ (the
+        game's meshes*.db0 always do) it finds the bake out of date and would download or bake it all
+        again. --adopt-dates (1.8.3) records this machine's dates, as Umbra Effects Setup does after
+        its own download; --match has compared the models by content first."""
+        try:
+            code, lines, res = zgo(["--adopt-dates", "--yes"], "Recording this machine's file dates", 0.86, 0.88)
+        except prebake.BakeError as e:
+            code, lines, res = None, [str(e)], {}
+        if code == 0 and "adopted" in res:
+            self.log("Recorded this machine's file dates in the prebaked bake's report (%s models)" % res["adopted"])
+            return
+        tail = " | ".join(x.strip() for x in lines if x.strip() and not x.startswith("usage:"))[-300:]
+        if code == 2:           # older than 1.8.3 (argparse: "unrecognized arguments"), or it can't run here
+            self.log("This Umbra Effects Setup can't record this machine's file dates in the prebaked bake (exit 2%s; "
+                     "1.8.3 can), so it may find the bake out of date" % ((": " + tail) if tail else ""))
+        else:
+            self.log("Umbra Effects Setup could not record this machine's file dates in the prebaked bake (exit %s%s)"
+                     % (code, (": " + tail) if tail else ""), "warn")
+
+    def _prebaked(self, L, zdir, mods_dir, fetcher, toks, zgo, bar):
         """Download the layer's prebaked bake and put it in place, if Umbra Effects Setup says
         it fits this mod list. Returns its fingerprint, or None (bake here instead)."""
         ref = L["bake"]
         tmp = os.path.join(mods_dir, ".umbra-tmp-bake")
         saved = fetcher.progress
         try:
-            self.progress("bake", 0.02, "getting the prebaked bake's report")
+            bar(0.02, "getting the prebaked bake's report")
             fetcher.fetch_all([ref])
             with open(fetcher.path(ref), "rb") as f:
                 b = packdef.check_bake(packdef.loads(f.read(), "the bake manifest"), ref)
@@ -746,7 +807,7 @@ class Installer:
             if prebake.BODY_REPORT not in names:
                 raise prebake.BakeError("its report is missing")
             layers.relocate(tmp, [r for r in b.get("relocate", []) if r in names], toks)
-            code, lines, res = zgo(["--match", tmp], "Comparing")
+            code, lines, res = zgo(["--match", tmp], "Comparing", 0.02, 0.05)
             if "match" not in res:                  # an Umbra Effects Setup from before 1.8.0, or it failed
                 tail = [x.strip() for x in lines if x.strip()][-2:]
                 self.log("Umbra Effects Setup could not compare the prebaked body models with your mod list (exit "
@@ -765,16 +826,18 @@ class Installer:
                 raise prebake.BakeError("%s free on the drive, %s needed" % (packdef.human(free), packdef.human(need)))
             self.log("The prebaked body models fit your mod list: downloading them (%s, %d models)"
                      % (packdef.human(sum(v["size"] for v in left)), b.get("models", 0)))
-            fetcher.progress = lambda done, total, msg="": self.progress(
-                "bake", 0.05 + 0.75 * ((done / total) if total else 1.0),
+            down = bar.part(0.05, 0.75)
+            fetcher.progress = lambda done, total, msg="": down(
+                (done / total) if total else 1.0,
                 "downloading %s of %s%s" % (packdef.human(done), packdef.human(total),
                                             ("; " + msg) if "retrying" in msg else ""))
             fetcher.fetch_all(vols)
             shutil.rmtree(tmp)
             os.makedirs(tmp)
             paths = [fetcher.path(v) for v in [b["report"]] + vols]
-            names = layers.unpack(paths, tmp, lambda d, t, rel: self.progress(
-                "bake", 0.8 + 0.15 * (d / t if t else 1.0), "unpacking: %s" % rel), self.cancelled)
+            unpack = bar.part(0.75, 0.86)
+            names = layers.unpack(paths, tmp, lambda d, t, rel: unpack(d / t if t else 1.0, "unpacking: %s" % rel),
+                                  self.cancelled)
             layers.relocate(tmp, b.get("relocate", []), toks)
             prebake.remove_old(zdir, names)
             prebake.move_in(tmp, zdir, names)

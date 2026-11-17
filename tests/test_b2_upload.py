@@ -868,6 +868,23 @@ class B2Upload(unittest.TestCase):
         self.assertIn("not a list of bakes", out)
         self.assertEqual(len(f.completed), n)
 
+    def test_the_list_orders_loose_bakes_first(self):
+        """Umbra Effects Setup before 1.8.3 tries the list's first bakes in turn and gives up at a
+        manifest it cannot read: the format-1 (loose) bakes come first, newest first, then the
+        packed ones; a fingerprint keeps one entry per format."""
+        def e(fp, made, fmt=None, sha="01"):
+            x = {"path": "umbra-effects/%s/%s.json" % (fp * 16, sha * 32), "fingerprint": fp * 16, "made": made}
+            if fmt is not None:
+                x["format"] = fmt
+            return x
+        new_packed, new_loose = e("ab", "2026-11-16", 2, "02"), e("ab", "2026-11-16", 1, "03")
+        old_remote_packed = e("ab", "2026-11-10", 2, "04")         # replaced by new_packed
+        other_remote = e("cd", "2026-11-01", None, "05")           # no format: 1, kept
+        got = json.loads(b2_upload.bake_index([new_packed, new_loose], [old_remote_packed, other_remote]))
+        self.assertEqual([x["path"] for x in got["bakes"]],
+                         [new_loose["path"], other_remote["path"], new_packed["path"]])
+        self.assertEqual(got["format"], 1)
+
     def test_a_pack_whose_bake_is_only_in_the_bucket(self):
         """Built once, uploaded, then left out of DIST: the pack still goes up when B2 has the bake."""
         f = self.fake

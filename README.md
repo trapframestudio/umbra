@@ -256,18 +256,27 @@ Either way, it then:
 4. Puts Umbra Gore & Effects' body models in place, asking the Umbra Effects
    Setup in the mod's folder (`installer/umbra_installer/prebake.py`):
    - Already baked, and the bake still fits the mod list (`--check`): nothing
-     to do.
+     to do. A bake the game won't load (`body=unused`: the folder isn't an
+     enabled mod of the profile) is a warning in the log, not a reason to bake.
    - Otherwise it downloads the prebaked bake's report (a few KB), and Umbra
      Effects Setup compares it with the player's mod list (`--match`). If it
      fits (the same models, compared by content, made with the same settings
      as the player's own last bake, or the defaults), Setup downloads the rest
-     and puts it in the mod's folder.
+     and puts it in the mod's folder. Then Umbra Effects Setup records this
+     machine's file dates in its report (`--adopt-dates`, 1.8.3), as it does
+     after its own download; without them its check would find the bake out
+     of date.
    - If it doesn't fit, or the download fails, Umbra Effects Setup bakes for
-     the player's own mod list (`--bake`, a few minutes on every CPU core).
-   - Then it cuts the breakable props again if they don't fit (`--props`).
+     the player's own mod list (`--bake --no-download`, a few minutes on every
+     CPU core; Setup has decided about the prebaked bake, so it isn't fetched
+     twice).
+   - Then it packs an old bake's loose small parts (`--pack`) and cuts the
+     breakable props again if they don't fit (`--props`).
 
    A bake that fails is a warning, not a failed install: the mod works
    without it and says so in the game. An update of the mod keeps its bake.
+   Cancelling stops Umbra Effects Setup's worker too: Ctrl+C (SIGINT) and the
+   worker's own cancel file first, a kill only after 20 seconds.
 5. Gets what the game needs from Microsoft (see below).
 6. Installs the launcher in the install's `.umbra` folder (see below), with
    the pack manifest (`pack.json`) it reads the options from.

@@ -106,7 +106,15 @@ last two for the plan's free-space check):
      "volumes": [<volume>, ...]}                  # the baked files
 
 with every <volume> = {"path": "umbra-effects/<fingerprint>/<sha256>.zip", "sha256",
-"size", "files", "bytes"}. Setup unpacks the report volume first and asks the
+"size", "files", "bytes"}.
+
+Format 2 is the same bake made by Umbra Gore & Effects 1.8.2 or later: its ~80,000
+small parts are packed in a few game archives (db/mods/zgo_bake_<part>_NN.db0,
+listed in the report like any file) instead of loose, and its volumes are
+LZMA-compressed (about a quarter smaller than deflate). A player's machine then
+unpacks some 5,000 files instead of 84,000 and needs no packing pass; readers
+before format 2 (Umbra Effects Setup 1.8.2 and older) refuse it from the
+manifest, before downloading anything. Setup unpacks the report volume first and asks the
 installed Umbra Effects Setup whether it fits the player's mod list (--match);
 only then does it download the rest. When it does not fit, or the download
 fails, Umbra Effects Setup bakes for the player's mod list instead.
@@ -119,8 +127,13 @@ the bucket's root, which dev/b2_upload.py writes after the manifests:
      "bakes": [{"path": "umbra-effects/<fingerprint>/<sha256>.json", "sha256", "size",
                 "fingerprint", "baker", "zgo", "made", "models", "download", "bytes"}, ...]}
 
-newest first, one per fingerprint (Umbra Gore & Effects' tools/zgo_setup/prebaked.py
-reads it, and does the same --match test, download and relocation in-process).
+one per fingerprint and format, the format-1 bakes first and newest first within
+each format (Umbra Gore & Effects' tools/zgo_setup/prebaked.py reads it, and does
+the same --match test, download and relocation in-process). Each entry says its
+manifest's "format" (none = 1). The order matters: Umbra Effects Setup before
+1.8.3 tries the first entries in turn and gives up at a manifest it cannot read,
+so the loose bakes it can use must come before the packed ones; a newer one
+takes the packed bake of a fingerprint when there is one.
 
 Relocation tokens (dev/pack_build.py writes them in place of the source
 machine's paths; layers.relocate() puts the player's in):
@@ -141,7 +154,10 @@ import json
 import re
 
 FORMAT = 5
-BAKE_FORMAT = 1
+BAKE_FORMAT = 1                  # loose parts, deflate volumes
+BAKE_FORMAT_PACKED = 2           # parts in game archives, LZMA volumes (see the top)
+BAKE_FORMATS = (BAKE_FORMAT, BAKE_FORMAT_PACKED)
+BAKE_ARCHIVE_PREFIX = "db/mods/zgo_bake_"   # Umbra Gore & Effects' packed parts (its bake.py ARCHIVE_PREFIX)
 TOKENS = ("MO2", "ANOMALY", "ZGO_CACHE")
 MAIN = "main"                         # the main profile's id
 
@@ -310,9 +326,9 @@ def check_bake(b, ref=None):
     """A prebaked bake's manifest (see the top); ref: the layer's bake object it was fetched by."""
     if not isinstance(b, dict) or b.get("kind") != "umbra-effects-bake":
         raise PackError("the bake manifest is not one")
-    if b.get("format") != BAKE_FORMAT:
-        raise PackError("this installer reads bake format %d; the bake says %r. Get the newest installer."
-                        % (BAKE_FORMAT, b.get("format")))
+    if b.get("format") not in BAKE_FORMATS:
+        raise PackError("this installer reads bake formats %s; the bake says %r. Get the newest installer."
+                        % (" and ".join(str(f) for f in BAKE_FORMATS), b.get("format")))
     fp = str(b.get("fingerprint", ""))
     if not re.match(r"^[0-9a-f]{32}$", fp):
         raise PackError("the bake has a bad fingerprint")

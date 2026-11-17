@@ -579,13 +579,13 @@ def is_program(head):
     return head.startswith(PROGRAM_MAGIC)
 
 
-def _zinfo(rel, mtime, program=False):
+def _zinfo(rel, mtime, program=False, method=zipfile.ZIP_DEFLATED):
     t = max(int(mtime), EPOCH_1980)
     zi = zipfile.ZipInfo(rel, date_time=time.gmtime(t)[:6])
     zi.external_attr = (0o755 if program else 0o644) << 16
     zi.create_system = 3
     zi.extra = _ut_extra(t)
-    zi.compress_type = zipfile.ZIP_STORED if rel.lower().endswith(STORED_EXT) else zipfile.ZIP_DEFLATED
+    zi.compress_type = zipfile.ZIP_STORED if rel.lower().endswith(STORED_EXT) else method
     return zi
 
 
@@ -615,8 +615,10 @@ def source_mtime(src):
 
 
 def build_volume(job):
-    """Runs in a worker: write one volume, return (sha256, size)."""
-    entries, tmp_dir = job
+    """Runs in a worker: write one volume, return (sha256, size). job: (entries, tmp_dir) or
+    (entries, tmp_dir, zip method): deflate unless it says otherwise (a packed bake: LZMA)."""
+    entries, tmp_dir = job[0], job[1]
+    method = job[2] if len(job) > 2 else zipfile.ZIP_DEFLATED
     fd, tmp = tempfile.mkstemp(suffix=".zip", dir=tmp_dir)
     os.close(fd)
     try:
@@ -624,11 +626,11 @@ def build_volume(job):
             for rel, src, _size, mtime, override in entries:
                 if override is not None or isinstance(src, tuple):
                     data = override if override is not None else read_source(src)
-                    z.writestr(_zinfo(rel, mtime, is_program(data[:4])), data)
+                    z.writestr(_zinfo(rel, mtime, is_program(data[:4]), method), data)
                 else:
                     with open(src, "rb") as fin:
                         program = is_program(fin.read(4))
-                    zi = _zinfo(rel, mtime, program)
+                    zi = _zinfo(rel, mtime, program, method)
                     with open(src, "rb") as fin, z.open(zi, "w", force_zip64=True) as fout:
                         while True:
                             b = fin.read(1 << 20)
@@ -990,7 +992,11 @@ class Builder:
         reports = [f for f in files if f[0] in inst_prebake.REPORTS]
         vols = [reports] + chunk([f for f in files if f[0] not in inst_prebake.REPORTS], self.volume_bytes)
         prefix = "%s/%s/" % (packdef.BAKE_DIR, fp)
-        key_layer = {"id": "bake-" + fp, "target": "bake"}
+        # a bake packed into game archives (Umbra Gore & Effects 1.8.2+): format 2, LZMA volumes
+        packed = any(f[0].startswith(packdef.BAKE_ARCHIVE_PREFIX) for f in files)
+        fmt = packdef.BAKE_FORMAT_PACKED if packed else packdef.BAKE_FORMAT
+        method = zipfile.ZIP_LZMA if packed else zipfile.ZIP_DEFLATED
+        key_layer = {"id": "bake-%s%s" % (fp, "-packed" if packed else ""), "target": "bake"}
         objs, jobs = [None] * len(vols), []
         for i, v in enumerate(vols):
             key = self.cache_key(key_layer, v)
@@ -1000,8 +1006,8 @@ class Builder:
             else:
                 jobs.append((i, key, v))
         nbytes = sum(f[2] for f in files)
-        say("  %-22s %6d files %10s in %d volumes (%s; %d to pack)" % (
-            "zgo bake", len(files), packdef.human(nbytes), len(vols), prefix, len(jobs)))
+        say("  %-22s %6d files %10s in %d volumes (%s; format %d; %d to pack)" % (
+            "zgo bake", len(files), packdef.human(nbytes), len(vols), prefix, fmt, len(jobs)))
         if self.dry:
             return {"path": prefix + "0" * 64 + ".json", "sha256": "0" * 64, "size": 0, "download": 0,
                     "bytes": nbytes}
@@ -1009,7 +1015,7 @@ class Builder:
         tmp_dir = os.path.join(self.out, ".tmp")
         os.makedirs(tmp_dir, exist_ok=True)
         with cf.ProcessPoolExecutor(max_workers=self.jobs) as ex:
-            futs = {ex.submit(build_volume, (v, tmp_dir)): (i, key, v) for i, key, v in jobs}
+            futs = {ex.submit(build_volume, (v, tmp_dir, method)): (i, key, v) for i, key, v in jobs}
             for n, fut in enumerate(cf.as_completed(futs)):
                 i, key, v = futs[fut]
                 sha, size, tmp = fut.result()
@@ -1023,7 +1029,7 @@ class Builder:
                 self.cache[key] = objs[i]
                 self.save_cache()
                 say("  packed bake %d/%d: %s" % (n + 1, len(jobs), packdef.human(size)))
-        man = {"format": packdef.BAKE_FORMAT, "kind": "umbra-effects-bake", "fingerprint": fp,
+        man = {"format": fmt, "kind": "umbra-effects-bake", "fingerprint": fp,
                "baker": inputs.get("baker", 0), "zgo": inputs.get("zgo", ""), "made": rep.get("time", ""),
                "models": rep.get("baked", 0), "files": len(files), "bytes": nbytes,
                "relocate": sorted(set(relocated) | set(named)), "report": objs[0], "volumes": objs[1:]}

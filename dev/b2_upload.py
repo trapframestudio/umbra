@@ -296,31 +296,41 @@ def add_bake(loc, ref, where):
             raise Refuse("%s is listed with two different sizes" % v["path"])
 
 
+def _bake_format(e):
+    """An index entry's manifest format (an entry without one is format 1)."""
+    f = e.get("format", packdef.BAKE_FORMAT)
+    return f if isinstance(f, int) else packdef.BAKE_FORMAT
+
+
 def bake_entries(loc):
-    """The list's entries for the bake manifests in DIST: per fingerprint the newest (by its
-    "made", then by the manifest file's date)."""
+    """The list's entries for the bake manifests in DIST: per fingerprint and format the
+    newest (by its "made", then by the manifest file's date)."""
     best = {}
     for it in loc.bakes.values():
         if it.kind != "bake" or not it.local:
             continue
         b = packdef.check_bake(packdef.loads(_read(it.path), it.rel))
         e = {"path": it.rel, "sha256": it.sha256, "size": it.size, "fingerprint": b["fingerprint"],
-             "baker": b.get("baker", 0), "zgo": b.get("zgo", ""), "made": b.get("made", ""),
+             "format": b["format"], "baker": b.get("baker", 0), "zgo": b.get("zgo", ""), "made": b.get("made", ""),
              "models": b.get("models", 0), "download": sum(v["size"] for v in b["volumes"]),
              "bytes": b.get("bytes", 0)}
         key = (str(e["made"]), os.path.getmtime(it.path))
-        if e["fingerprint"] not in best or key > best[e["fingerprint"]][0]:
-            best[e["fingerprint"]] = (key, e)
+        slot = (e["fingerprint"], e["format"])
+        if slot not in best or key > best[slot][0]:
+            best[slot] = (key, e)
     return [e for _, e in best.values()]
 
 
 def bake_index(entries, remote=()):
     """umbra-effects/index.json: entries, plus those of the bucket's list (remote) for other
-    fingerprints, newest first."""
-    mine = {e["fingerprint"] for e in entries}
+    fingerprints or formats; the format-1 (loose) bakes first, newest first within a format.
+    (Umbra Effects Setup before 1.8.3 tries the first entries in turn and gives up at a
+    manifest in a format it cannot read: packdef, "Prebaked bakes".)"""
+    mine = {(e["fingerprint"], _bake_format(e)) for e in entries}
     keep = [e for e in remote or () if isinstance(e, dict) and _BAKE.match(str(e.get("path", "")))
-            and e.get("fingerprint") not in mine]
+            and (e.get("fingerprint"), _bake_format(e)) not in mine]
     bakes = sorted(entries + keep, key=lambda e: (str(e.get("made", "")), e["path"]), reverse=True)
+    bakes.sort(key=_bake_format)            # stable: newest first within each format
     return (json.dumps({"format": 1, "kind": "umbra-effects-bakes", "bakes": bakes}, indent=1, sort_keys=True)
             + "\n").encode("utf-8")
 

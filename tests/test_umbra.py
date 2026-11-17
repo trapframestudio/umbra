@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socketserver
 import struct
 import subprocess
@@ -34,6 +35,7 @@ sys.path.insert(0, os.path.join(ROOT, "dev"))
 import pack_build  # noqa: E402
 from umbra_installer import shortcuts as menus  # noqa: E402 (the module; shortcuts() below reads Steam's)
 from umbra_installer import cab, fetch, gammacli, install, launcher, layers, mo2, packdef, runtime, steam, ttf, userltx  # noqa: E402,E501
+from umbra_installer import prebake  # noqa: E402
 
 REAL_DOWNLOADS = copy.deepcopy(runtime.DOWNLOADS)       # the tests use small stand-ins (setUpModule)
 
@@ -44,14 +46,22 @@ import json, os, sys
 a = sys.argv[1:]
 def arg(k):
     return a[a.index(k) + 1] if k in a else None
-log = open(arg("--log"), "a")
-def say(s):
-    log.write(s + "\n")
-    log.flush()
 if os.environ.get("FAKE_ZGO_CALLS"):
     with open(os.environ["FAKE_ZGO_CALLS"], "a") as f:
         f.write(" ".join(x for x in a if x.startswith("--") and x not in
                          ("--mod", "--mo2", "--profile", "--game", "--log", "--yes")) + "\n")
+# FAKE_ZGO_VERSION: an older one's argparse refuses what it doesn't know yet, on stderr, before its log starts
+ver = tuple(int(x) for x in os.environ.get("FAKE_ZGO_VERSION", "1.8.3").split("."))
+since = {"--match": (1, 8, 0), "--no-download": (1, 8, 1), "--adopt-dates": (1, 8, 3)}
+unknown = [x for x in a if ver < since.get(x, ver)]
+if unknown:
+    sys.stderr.write("usage: zgo_setup [-h] [--mod MOD]\nzgo_setup: error: unrecognized arguments: %s\n"
+                     % " ".join(unknown))
+    sys.exit(2)
+log = open(arg("--log"), "a")
+def say(s):
+    log.write(s + "\n")
+    log.flush()
 mod = arg("--mod")
 rep_p = os.path.join(mod, "zgo_bake_report.json")
 def body_state():
@@ -61,6 +71,10 @@ def body_state():
         return "none"
     if not all(os.path.isfile(os.path.join(mod, *f.split("/"))) for f in rep.get("files", [])):
         return "broken"
+    if os.environ.get("FAKE_ZGO_DATES") and not rep.get("adopted"):    # the dates of the machine that made it
+        return "stale"
+    if os.environ.get("FAKE_ZGO_UNUSED"):
+        return "unused"
     return "stale" if os.environ.get("FAKE_ZGO_STALE") else "ok"
 def pack_state():                  # FAKE_ZGO_LOOSE: the bake's small parts are loose (before 1.8.2)
     try:
@@ -70,14 +84,28 @@ def pack_state():                  # FAKE_ZGO_LOOSE: the bake's small parts are 
     return "needed" if os.environ.get("FAKE_ZGO_LOOSE") and not rep.get("packed") else "ok"
 if "--check" in a:
     st = body_state()
-    say("Your bake is up to date." if st == "ok" else "Not baked yet.")
+    if st == "unused":
+        say("The bake is up to date, but the game doesn't use it.")
+        say('"Gore" is not ticked in the MO2 profile "Umbra", so the game does not load it or its bake.')
+    else:
+        say("Your bake is up to date." if st == "ok" else "Not baked yet.")
     say("RESULT body=%s props=%s kid=ok pack=%s" % (st, os.environ.get("FAKE_ZGO_PROPS", "none"), pack_state()))
     sys.exit(0 if st == "ok" and pack_state() == "ok" else 1)
 if "--pack" in a:
+    say("  [pack] Packing the small parts into archives 5/10 packing the small parts into archives")
+    say("  [pack] Packing the small parts into archives 10/10 packed 3 files into 1 archive")
+    say("  [pack] Packing the small parts into archives 1/3 deleting the loose copies")
     rep = json.load(open(rep_p))
     rep["packed"] = {"db/mods/zgo_bake_pieces_00.db0": []}
     json.dump(rep, open(rep_p, "w"))
     say("Packed 3 loose files into archives.")
+    sys.exit(0)
+if "--adopt-dates" in a:
+    rep = json.load(open(rep_p))
+    rep["adopted"] = True
+    json.dump(rep, open(rep_p, "w"))
+    say("Recorded this machine's file dates in the bake (1 models).")
+    say("RESULT adopted=1")
     sys.exit(0)
 if "--match" in a:
     rep = json.load(open(os.path.join(arg("--match"), "zgo_bake_report.json")))
@@ -101,15 +129,23 @@ if "--bake" in a:
     if os.environ.get("FAKE_ZGO_BAKE_FAILS"):
         say("Problem: not enough free space")
         sys.exit(2)
-    for i in (1, 2):
-        say("  [models] Baking %d/2 actors\\x" % i)
+    for line in ("[models] Getting ready 1/1 x", "[models] Reading the game's own models 3/6 actors",
+                 "[models] Reading your mod list 3/3 mods scanned", "[models] Baking models 1/2 actors\\x",
+                 "[models] Baking models 2/2 actors\\y", "[models] Writing the index 1/1 index scripts written",
+                 "[models] Packing the small parts into archives 4000/8000 packing the small parts into archives",
+                 "[models] Installing into the Umbra Effects folder 2/2 files installed",
+                 "[props] Getting ready 0/1 reading the last report", "[props] Cutting props 1/2 x",
+                 "[particles] Kid mode for particles 1/1 done"):
+        say("  " + line)
     os.makedirs(os.path.join(mod, "gamedata", "meshes"), exist_ok=True)
     open(os.path.join(mod, "gamedata", "meshes", "m.ogf"), "wb").write(b"baked here")
-    json.dump({"profile": arg("--profile"), "files": ["gamedata/meshes/m.ogf"], "inputs": {"fingerprint": "f" * 32}},
-              open(rep_p, "w"))
+    json.dump({"profile": arg("--profile"), "files": ["gamedata/meshes/m.ogf"], "inputs": {"fingerprint": "f" * 32},
+               "adopted": True}, open(rep_p, "w"))
     say("Baked 2 models (0 skipped, 0 could not be baked)")
     sys.exit(0)
 if "--props" in a or "--kid-particles-apply" in a:
+    say("  [props] Getting ready 1/1 x" if "--props" in a else "  [particles] Kid mode for particles 0/1 x")
+    say("  [props] Cutting props 2/2 x" if "--props" in a else "  [particles] Kid mode for particles 1/1 done")
     say("done")
     sys.exit(0)
 sys.exit(2)
@@ -1061,6 +1097,34 @@ class PackBuild(unittest.TestCase):
         self.assertEqual(pack["layers"][0]["bake"], ref)
         self.assertEqual(len(os.listdir(os.path.join(out, "umbra-effects", BAKE_FP))), 3)
 
+    def test_a_packed_bake_goes_up_as_format_2(self):
+        """A bake with its small parts in game archives (Umbra Gore & Effects 1.8.2+): format 2,
+        LZMA volumes, which an older Umbra Effects Setup refuses from the manifest."""
+        gore = os.path.join(self.d, "src", "gamma", "mods", "Gore")
+        rp = os.path.join(gore, "zgo_bake_report.json")
+        with open(rp, encoding="utf-8") as f:
+            rep = json.load(f)
+        arc = "db/mods/zgo_bake_caps_00.db0"
+        write(os.path.join(gore, *arc.split("/")), "archive " * 500)
+        rep["files"] = rep["files"] + [arc]
+        rep["packed"] = {arc: ["gamedata/meshes/zgo/baked/caps/x.ogf"]}
+        write(rp, json.dumps(rep))
+        out = os.path.join(self.d, "packed")
+        ref, = pack_build.Builder(pack_build.load_def(self.toml), out, 4096, 2, False).bake_only()
+        with open(os.path.join(out, ref["path"]), encoding="utf-8") as f:
+            b = packdef.check_bake(json.load(f), ref)
+        self.assertEqual(b["format"], packdef.BAKE_FORMAT_PACKED)
+        seen = set()
+        for v in [b["report"]] + b["volumes"]:
+            with zipfile.ZipFile(os.path.join(out, v["path"])) as z:
+                for i in z.infolist():
+                    seen.add(i.filename)
+                    if not i.filename.lower().endswith(pack_build.STORED_EXT):
+                        self.assertEqual(i.compress_type, zipfile.ZIP_LZMA, i.filename)
+        self.assertIn(arc, seen)
+        with self.assertRaisesRegex(packdef.PackError, "reads bake formats 1 and 2"):
+            packdef.check_bake(dict(b, format=3), ref)
+
     def test_a_bake_made_before_the_mod_was_renamed(self):
         with open(self.toml, encoding="utf-8") as f:
             toml = f.read()
@@ -1638,6 +1702,84 @@ class Prebake(unittest.TestCase):
     def mesh(self, t_mo2):
         return read_bytes(os.path.join(t_mo2, "mods", "Gore", "gamedata", "meshes", "m.ogf"))
 
+    def install_watching(self, name, **kw):
+        """install(), also recording the "bake" step's bar: [(fraction, message)]."""
+        t_mo2, _ = make_target(os.path.join(self.d, name))
+        logs, bar = [], []
+        inst = install.Installer(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False, **kw),
+                                 log=lambda m, l="info": logs.append((l, m)),
+                                 progress=lambda step, f, msg="": bar.append((f, msg)) if step == "bake" else None)
+        plan = inst.plan()
+        self.assertTrue(plan.ok(), plan.problems)
+        return t_mo2, inst.run(plan), logs, bar
+
+    def assertForward(self, bar):
+        self.assertEqual([(a, b) for a, b in zip(bar, bar[1:]) if b[0] < a[0]], [], "the bar went back")
+        self.assertEqual(bar[-1][0], 1.0)
+
+    def test_this_machines_dates_go_into_the_prebaked_bake(self):
+        """The prebaked bake's report has the file dates of the machine that made it, and Umbra Effects
+        Setup compares by date: once the bake is in, --adopt-dates (1.8.3) records this machine's, or
+        its check finds the bake out of date and it is downloaded or baked all over again."""
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_DATES": "1", "FAKE_ZGO_LOOSE": "1", "FAKE_ZGO_PROPS": "stale"}):
+            t_mo2, st, logs, bar = self.install_watching("dates")
+        self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check", "--pack", "--props"])
+        self.assertEqual(st["bake"], {"how": "prebaked", "fingerprint": BAKE_FP})
+        self.assertNotEqual(self.mesh(t_mo2), b"baked here")
+        said = " ".join(m for _, m in logs)
+        self.assertIn("Recorded this machine's file dates", said)
+        for wrong in ("baked here", "every CPU core", "Baking"):
+            self.assertNotIn(wrong, said)
+        self.assertForward(bar)
+        for what in ("downloading ", "unpacking: ", "Packing the bake: [pack]", "Cutting the props: [props]"):
+            self.assertTrue(any(m.startswith(what) for _, m in bar), (what, bar))
+
+    def test_an_umbra_effects_setup_without_adopt_dates(self):
+        """1.8.1 and 1.8.2 don't know --adopt-dates (argparse exits 2): said, but not a warning. Its
+        check then finds the prebaked bake out of date: it is baked here, not downloaded again
+        (--no-download), and the bar goes on from where the download left it."""
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_DATES": "1", "FAKE_ZGO_VERSION": "1.8.2"}):
+            t_mo2, st, logs, bar = self.install_watching("no-adopt")
+        self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check", "--bake --no-download"])
+        self.assertEqual(st["bake"]["how"], "baked here")
+        self.assertEqual(self.mesh(t_mo2), b"baked here")
+        about = [(lv, m) for lv, m in logs if "file dates" in m]
+        self.assertEqual([lv for lv, _ in about], ["info"], logs)
+        self.assertIn("unrecognized arguments: --adopt-dates", about[0][1])
+        self.assertTrue(any(lv == "warn" and "does not accept the prebaked" in m for lv, m in logs), logs)
+        self.assertForward(bar)
+        baking = [f for f, m in bar if m.startswith("Baking: [")]
+        self.assertGreater(len(baking), 5, bar)
+        self.assertGreaterEqual(baking[0], 0.88)
+        self.assertLess(baking[0], baking[-1])
+
+    def test_an_umbra_effects_setup_without_no_download(self):
+        """Before 1.8.1 (which never downloads) it doesn't know --no-download: it bakes without it."""
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_VERSION": "1.7.1"}):
+            t_mo2, st, logs, bar = self.install_watching("before-1.8.1")
+        self.assertEqual(self.asked(), ["--check", "--match", "--bake --no-download", "--bake"])
+        self.assertEqual(st["bake"]["how"], "baked here")
+        self.assertEqual(self.mesh(t_mo2), b"baked here")
+        said = " ".join(m for _, m in logs)
+        self.assertIn("unrecognized arguments: --match", said)          # (--match came in 1.8.0)
+        self.assertIn("older than 1.8.1", said)
+        self.assertIn("Baked 2 models", said)
+        self.assertForward(bar)
+
+    def test_a_bake_the_game_does_not_load_is_said_not_baked_again(self):
+        """body=unused (1.8.3): the bake is right, but the folder isn't an enabled mod of the profile."""
+        with mock.patch.dict(os.environ, {"FAKE_ZGO_UNUSED": "1"}):
+            t_mo2, st, logs = self.install("unused")
+            self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check"])
+            self.assertEqual(st["bake"]["how"], "prebaked")
+            st2, logs2 = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
+        self.assertEqual(self.asked(), ["--check"])
+        self.assertEqual(st2["bake"]["how"], "up to date")
+        for got in (logs, logs2):
+            warn = [m for lv, m in got if lv == "warn" and "won't load them" in m]
+            self.assertEqual(len(warn), 1, got)
+            self.assertIn('is not ticked in the MO2 profile "Umbra"', warn[0])
+
     def test_it_fits_so_it_is_downloaded(self):
         t_new, _ = make_target(os.path.join(self.d, "fits-plan"))
         plan = install.Installer(install.Options(mode="existing", mo2_dir=t_new, source=self.dist, steam=False)).plan()
@@ -1647,7 +1789,7 @@ class Prebake(unittest.TestCase):
         ref = self.pack["layers"][0]["bake"]
         self.assertEqual(plan.need_bytes - nobake.need_bytes, ref["download"] + ref["bytes"])
         t_mo2, st, logs = self.install("fits")
-        self.assertEqual(self.asked(), ["--check", "--match", "--check"])
+        self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check"])
         self.assertEqual(st["bake"], {"how": "prebaked", "fingerprint": BAKE_FP})
         ref = self.pack["layers"][0]["bake"]
         self.assertGreater(ref["download"], 0)
@@ -1669,7 +1811,7 @@ class Prebake(unittest.TestCase):
         a prebaked bake made before that arrives loose: Umbra Setup asks for --pack once it is in."""
         with mock.patch.dict(os.environ, {"FAKE_ZGO_LOOSE": "1"}):
             t_mo2, st, logs = self.install("loose")
-            self.assertEqual(self.asked(), ["--check", "--match", "--check", "--pack"])
+            self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check", "--pack"])
             self.assertEqual(st["bake"]["how"], "prebaked")
             self.assertTrue(any("into a few archives" in m for _, m in logs), logs)
             st2, _ = run_install(install.Options(mode="existing", mo2_dir=t_mo2, source=self.dist, steam=False))
@@ -1679,7 +1821,7 @@ class Prebake(unittest.TestCase):
     def test_another_mod_list_is_baked_here(self):
         with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "no"}):
             t_mo2, st, logs = self.install("other-list")
-        self.assertEqual(self.asked(), ["--check", "--match", "--bake"])
+        self.assertEqual(self.asked(), ["--check", "--match", "--bake --no-download"])
         self.assertEqual(st["bake"]["how"], "baked here")
         self.assertEqual(self.mesh(t_mo2), b"baked here")
         said = " ".join(m for _, m in logs)
@@ -1690,7 +1832,7 @@ class Prebake(unittest.TestCase):
     def test_an_umbra_effects_setup_that_cannot_compare(self):
         with mock.patch.dict(os.environ, {"FAKE_ZGO_MATCH": "old"}):
             t_mo2, st, logs = self.install("old-zgo")
-        self.assertEqual(self.asked(), ["--check", "--match", "--bake"])
+        self.assertEqual(self.asked(), ["--check", "--match", "--bake --no-download"])
         self.assertEqual(st["bake"]["how"], "baked here")
         said = " ".join(m for _, m in logs)
         self.assertIn("could not compare", said)
@@ -1707,7 +1849,7 @@ class Prebake(unittest.TestCase):
     def test_stale_props_are_cut_again(self):
         with mock.patch.dict(os.environ, {"FAKE_ZGO_PROPS": "stale"}):
             self.install("props")
-        self.assertEqual(self.asked(), ["--check", "--match", "--check", "--props"])
+        self.assertEqual(self.asked(), ["--check", "--match", "--adopt-dates", "--check", "--props"])
 
     def test_without_the_bake(self):
         t_mo2, _ = make_target(os.path.join(self.d, "nobake"))
@@ -1743,11 +1885,51 @@ class Prebake(unittest.TestCase):
         self.assertEqual(prebake.parse_result(["x", "RESULT body=ok props=stale kid=off", "RESULT match=no fingerprint=ab",
                                                "done"]), {"match": "no", "fingerprint": "ab"})
         self.assertEqual(prebake.parse_result(["no result"]), {})
-        self.assertAlmostEqual(prebake.progress_of("  [models] Baking 120/480 actors\\x"), 0.25)
+        self.assertAlmostEqual(prebake.progress_of("  [models] Baking 120/480 actors\\x"), 0.23)   # (its task's part)
         self.assertIsNone(prebake.progress_of("Baked 4790/4790 models"))
         self.assertIsNone(prebake.progress_of("  [models] 3/0"))
-        self.assertAlmostEqual(prebake.progress_of("  [models] Baking models 2395/4790 actors\\x"), 0.55)
-        self.assertAlmostEqual(prebake.progress_of("  [models] Reading your mod list 10/10 "), 0.2)
+        self.assertIsNone(prebake.progress_of("  [download] Downloading the ready-made bake: starting"))
+        # a --bake: the body models fill 0..0.92 (as Umbra Effects Setup's window weighs their stages), then the
+        # props, then kid mode for particles; --pack, --props: their task is the whole run
+        self.assertAlmostEqual(prebake.progress_of("  [models] Baking models 2395/4790 actors\\x"), 0.92 * 0.45)
+        self.assertAlmostEqual(prebake.progress_of("  [models] Reading your mod list 10/10 "), 0.092)
+        self.assertAlmostEqual(prebake.progress_of("  [download] Downloading the ready-made bake: 1.2 GB of 4.8 GB, "
+                                                   "25.0 MB/s, about 2 minutes left"), 0.92 * (0.05 + 0.75 / 4))
+        self.assertAlmostEqual(prebake.progress_of("  [pack] Packing the small parts into archives 2/2 packed",
+                                                   "--pack"), 0.95)
+        self.assertAlmostEqual(prebake.progress_of("  [pack] Packing the small parts into archives 1/2 deleting the "
+                                                   "loose copies", "--pack"), 0.975)
+        self.assertAlmostEqual(prebake.progress_of("  [props] Cutting props 3/3 x", "--props"), 0.9)
+        # the stages one after the other, as zgo_setup.py prints them: forward only
+        here = ["Getting ready 1/1 x", "Reading the game's own models 3/6 x", "Reading your mod list 10/10 x",
+                "Baking models 1/4790 x", "Baking models 4790/4790 models baked", "Writing the index 1/1 x",
+                "Packing the small parts into archives 400000000/4100000000 packing the small parts",
+                "Packing the small parts into archives 4100000000/4100000000 packed 78858 files into 9 archives",
+                "Installing into the Umbra Effects folder 1000/4800 files installed"]
+        ready = ["Looking for a ready-made bake 0/1 asking", "Looking for a ready-made bake 4000/4250 comparing",
+                 "Downloading the ready-made bake: 0 bytes of 4.7 GB", "Downloading the ready-made bake: 1.2 GB of "
+                 "4.7 GB, 25.0 MB/s, about 2 minutes left", "Downloading the ready-made bake: 4.7 GB of 4.7 GB",
+                 "Unpacking the ready-made bake 500/83789 x.ogf", "Installing into the Umbra Effects folder 2000/83789 "
+                 "moving the files in", "Packing the small parts into archives 100000000/4100000000 packing",
+                 "Packing the small parts into archives 4100000000/4100000000 packed",
+                 "Packing the small parts into archives 10/78858 deleting the loose copies"]
+        tail = ["[props] Getting ready 0/1 x", "[props] Cutting props 3/135 x", "[props] Done 1/1 x",
+                "[particles] Kid mode for particles 0/1 x", "[particles] Kid mode for particles 1/1 done"]
+        for seq in (["[models] " + x for x in here], ["[download] " + x for x in ready]):
+            got = [prebake.progress_of("  " + x) for x in seq + tail]
+            self.assertEqual(got, sorted(got), list(zip(got, seq + tail)))
+            self.assertLess(got[0], 0.05)
+            self.assertGreater(got[len(seq) - 1], 0.8)
+            self.assertEqual(got[-1], 1.0)
+        # the bar over several parts: never back; a part the bar is past goes on from where it is
+        seen = []
+        bar = prebake.Bar(lambda step, f, msg="": seen.append((step, f)), "bake")
+        bar(0.5, "downloading")
+        bar.part(0.0, 0.2)(1.0)
+        rest = bar.part(0.05, 1.0)
+        for f in (0.0, 0.5, 1.0):
+            rest(f)
+        self.assertEqual(seen, [("bake", 0.5), ("bake", 0.5), ("bake", 0.5), ("bake", 0.75), ("bake", 1.0)])
         old, new, tmp = (os.path.join(self.d, "bits", x) for x in ("old", "new", "tmp"))
         write(os.path.join(old, "zgo_bake_report.json"), json.dumps(
             {"files": ["a/x.ogf", "a/y.ogf", "../escape.txt", "C:/no.txt", "shipped.script"]}))
@@ -1774,6 +1956,153 @@ class Prebake(unittest.TestCase):
         prebake.move_in(tmp, new, names)
         self.assertEqual(read_bytes(os.path.join(new, "a", "x.ogf")), b"new x")
         self.assertEqual(prebake.generated(new), {"zgo_bake_report.json", "a/x.ogf", "b/z.ogf"})
+
+
+# A stand-in for Umbra Effects Setup's command line with its worker (setup_core.Job): the worker runs
+# until the cancel file of its job (a zgo_setup_* folder in the temp folder) is there. FAKE_STOP:
+# "sigint": Ctrl+C makes it cancel its worker, as the real one does, and it ignores SIGTERM: only
+#           SIGINT stops it cleanly;
+# "deaf":   no signal reaches it (as on Windows), it waits for its worker;
+# "stuck":  deaf, and no worker.
+FAKE_STOPPABLE = r'''
+import json, os, signal, subprocess, sys, tempfile, time
+WORKER = """
+import os, sys, time
+def event(s):
+    with open(sys.argv[2], "a") as f:
+        f.write(s + "\\n")
+event("worker %d" % os.getpid())
+while not os.path.exists(sys.argv[1]):
+    time.sleep(0.05)
+event("worker stopped")
+"""
+a = sys.argv[1:]
+mode, events = os.environ["FAKE_STOP"], os.environ["FAKE_EVENTS"]
+def event(s):
+    with open(events, "a") as f:
+        f.write(s + "\n")
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+if mode != "sigint":
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+event("cli %d" % os.getpid())
+d = tempfile.mkdtemp(prefix="zgo_setup_")
+cancel = os.path.join(d, "cancel")
+with open(os.path.join(d, "job.json"), "w") as f:
+    json.dump({"action": "bake", "paths": {"mod": os.path.abspath(a[a.index("--mod") + 1])}, "cancel": cancel}, f)
+worker = None if mode == "stuck" else subprocess.Popen([sys.executable, "-c", WORKER, cancel, events])
+with open(a[a.index("--log") + 1], "a") as f:
+    f.write("  [models] Baking models 1/10 x\n")
+try:
+    while worker is None or worker.poll() is None:
+        time.sleep(0.05)
+except KeyboardInterrupt:
+    event("SIGINT")
+    open(cancel, "w").close()
+    worker.wait()
+event("exit")
+sys.exit(3)
+'''
+
+
+@unittest.skipIf(os.name == "nt", "POSIX signals")
+class ZgoStop(unittest.TestCase):
+    """Cancel, or a timeout, stops Umbra Effects Setup and the worker that does its work: Ctrl+C
+    first (SIGINT), which its command line answers by cancelling the worker, and the worker's
+    cancel file; terminate() and kill(), which reach the command line only, after STOP_WAIT."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="umbra_test_")
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.prog = os.path.join(self.d, "zgo", "zgo-setup-linux")
+        write(self.prog, "#!%s\n%s" % (sys.executable, FAKE_STOPPABLE))
+        os.chmod(self.prog, 0o755)
+        self.events = os.path.join(self.d, "events.txt")
+        self.mod = os.path.join(self.d, "mods", "Gore")
+        os.makedirs(self.mod)
+        os.makedirs(os.path.join(self.d, "tmp"))
+        self.env = dict(os.environ, TMPDIR=os.path.join(self.d, "tmp"), FAKE_EVENTS=self.events)
+
+    def run_zgo(self, mode, raises=KeyboardInterrupt, timeout=None):
+        """Run it, cancelled once it has said something (or with a timeout); returns (events, seconds)."""
+        lines = []
+        t0 = time.monotonic()
+        with self.assertRaises(raises):
+            prebake.run(self.prog, ["--mod", self.mod, "--bake", "--yes"], os.path.join(self.d, "work"),
+                        dict(self.env, FAKE_STOP=mode), lines.append, None if timeout else (lambda: bool(lines)),
+                        timeout=timeout)
+        took = time.monotonic() - t0
+        time.sleep(0.3)                     # (the worker's last word)
+        with open(self.events) as f:
+            return [x.strip() for x in f], took
+
+    def assertStoppedCleanly(self, ev, took):
+        self.assertIn("worker stopped", ev)
+        self.assertEqual(ev[-1], "exit")                    # not killed
+        self.assertLess(took, prebake.STOP_WAIT)
+
+    def test_cancel_sends_ctrl_c_before_any_kill(self):
+        ev, took = self.run_zgo("sigint")
+        self.assertIn("SIGINT", ev)
+        self.assertLess(ev.index("SIGINT"), ev.index("worker stopped"))
+        self.assertStoppedCleanly(ev, took)
+
+    def test_a_timeout_stops_it_the_same_way(self):
+        ev, took = self.run_zgo("sigint", prebake.BakeError, timeout=1)
+        self.assertIn("SIGINT", ev)
+        self.assertStoppedCleanly(ev, took)
+
+    def test_a_worker_no_signal_reaches_is_stopped_by_its_cancel_file(self):
+        ev, took = self.run_zgo("deaf")
+        self.assertNotIn("SIGINT", ev)
+        self.assertStoppedCleanly(ev, took)
+
+    def test_one_that_does_not_stop_is_killed(self):
+        with mock.patch.object(prebake, "STOP_WAIT", 0.5), mock.patch.object(prebake, "KILL_WAIT", 0.5):
+            ev, took = self.run_zgo("stuck")
+        self.assertNotIn("exit", ev)
+        pid = int(next(x for x in ev if x.startswith("cli ")).split()[1])
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+        self.assertLess(took, 10)
+
+    def test_only_its_own_jobs_are_cancelled(self):
+        tmp = self.env["TMPDIR"]
+
+        def job(name, mod, age=0):
+            d = os.path.join(tmp, name)
+            write(os.path.join(d, "job.json"), json.dumps({"paths": {"mod": mod}, "cancel": os.path.join(d, "cancel")}))
+            if age:
+                os.utime(os.path.join(d, "job.json"), (time.time() - age,) * 2)
+            return d
+        mine, other, old = (job("zgo_setup_a", self.mod), job("zgo_setup_b", os.path.join(self.d, "mods", "Other")),
+                            job("zgo_setup_c", self.mod, 3600))
+        write(os.path.join(tmp, "zgo_setup_d", "job.json"), "not json")
+        self.assertEqual(prebake.cancel_jobs(self.mod, time.time() - 10, self.env), 1)
+        self.assertTrue(os.path.exists(os.path.join(mine, "cancel")))
+        self.assertFalse(os.path.exists(os.path.join(other, "cancel")))
+        self.assertFalse(os.path.exists(os.path.join(old, "cancel")))
+
+    def test_windows_its_own_process_group_and_ctrl_break_only_where_it_can_arrive(self):
+        """Without Windows: the flags it is started with, and Ctrl+Break only to a program on this
+        program's console (to any other process group, the console sends it to every program on it)."""
+        seen = {}
+
+        def popen(cmd, **kw):
+            seen.update(kw)
+            raise OSError("not here")
+        with mock.patch.object(prebake, "WINDOWS", True), mock.patch.object(prebake.subprocess, "Popen", popen):
+            code, lines = prebake.run(self.prog, ["--check"], os.path.join(self.d, "work"))
+        self.assertIsNone(code)
+        self.assertEqual(seen["creationflags"], 0x08000000 | 0x200)      # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+        self.assertEqual(seen["stdin"], subprocess.DEVNULL)
+        p = mock.Mock(pid=4242)
+        with mock.patch.object(prebake, "WINDOWS", True):
+            with mock.patch.object(prebake, "_console_pids", return_value=set()):
+                prebake._interrupt(p)
+            p.send_signal.assert_not_called()
+            with mock.patch.object(prebake, "_console_pids", return_value={4242}):
+                prebake._interrupt(p)
+        p.send_signal.assert_called_once_with(getattr(signal, "CTRL_BREAK_EVENT", 1))
 
 
 class Safety(unittest.TestCase):
